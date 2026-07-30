@@ -9,7 +9,7 @@
 
 ## ✨ Features
 
-- **Context-Aware Prompt Generation**: Automatically synthesizes recent chat turns, target character lore, user persona, and relevant World Info entries into clean, high-quality image prompts.
+- **Context-Aware Prompt Generation**: Automatically synthesizes recent chat turns, target character lore, user persona, and relevant World Info entries into clean, high-quality image prompts. Optionally, start context from any past message.
 - **Bypasses Strict LLM Constraints**: Bypasses active chat presets, system prompts, and character post-history instructions that usually interfere with AI image prompt formatting.
 - **Two Specialized Modes**:
   - **`/drawbg` (Background Mode)**: Focuses on environment design, cinematic framing, weather, lighting, and scenery. Automatically uploads the generated image and applies it to your active chat background at 1080p resolution.
@@ -97,6 +97,7 @@ Generates an environment/background image prompt based on the setting and contex
 | `negative` | `String` | `""` | Additional negative prompt terms to append to the generation call. |
 | `persona` | `Boolean` | `true` | Set to `false` to exclude your active User Persona description. |
 | `worldinfo` | `Boolean` | `true` | Set to `false` to exclude triggered World Info / Lorebook entries. |
+| `messageid` | `Number` | `{{lastMessageID}}` | Specify a previous message to use for image context. |
 
 ---
 
