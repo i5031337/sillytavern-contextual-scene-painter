@@ -3,7 +3,7 @@
 
 # Contextual Scene Painter (SillyTavern Extension)
 
-**Contextual Scene Painter** is a no-nonsense AI image prompt generation extension for [SillyTavern](https://github.com/SillyTavern/SillyTavern). It analyzes your ongoing chat history (optionally including active character card details, persona, and/or World Info), to synthesize context-aware image prompts on the fly.
+**Contextual Scene Painter** is a no-nonsense AI image prompt generation extension for [SillyTavern](https://github.com/SillyTavern/SillyTavern). It analyzes your ongoing chat history (optionally including any character card details, active persona, and/or World Info), to synthesize context-aware image prompts on the fly.
 
 ---
 
