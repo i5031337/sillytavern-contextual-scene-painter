@@ -597,7 +597,7 @@ async function generateWithOptionalProfile(context, fullRawPrompt) {
 }
 
 async function buildImagePrompt(userInstruction, targetCard, commandKey, options = {}) {
-    const { includePersona = true, includeWorldInfo = true } = options;
+    const { includePersona = true, includeWorldInfo = true, messageId = null } = options;
 
     const context = getContext();
     const defaults = defaultCommandSettings(commandKey);
@@ -610,7 +610,15 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
     const charIdx = resolveCharacterIndex(targetCard);
     const userName = context.name1 || 'User';
 
-    const chatLog = context.chat || [];
+    const fullChatLog = context.chat || [];
+    let chatLog = fullChatLog;
+    if (messageId !== null && messageId !== undefined) {
+        const idx = Number(messageId);
+        if (!Number.isInteger(idx) || idx < 0 || idx >= fullChatLog.length) {
+            throw new Error(`Invalid messageid ${messageId}. Must be an integer between 0 and ${fullChatLog.length - 1}.`);
+        }
+        chatLog = fullChatLog.slice(0, idx + 1);
+    }
     const tokenLimit = Number(moduleSettings.historyTokenLimit) > 0 ? Number(moduleSettings.historyTokenLimit) : DEFAULT_HISTORY_TOKEN_LIMIT;
     const recentMessages = await buildRecentMessagesBlock(chatLog, userName, tokenLimit);
 
@@ -763,7 +771,8 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         { name: 'height', description: 'Image height (default: 1080)', type: [ARGUMENT_TYPE.NUMBER], required: false },
         { name: 'negative', description: 'Negative prompt additions for this generation', type: [ARGUMENT_TYPE.STRING], required: false },
         { name: 'persona', description: 'Include active Persona description (default: true)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
-        { name: 'worldinfo', description: 'Include active World Info entries (default: true)', type: [ARGUMENT_TYPE.BOOLEAN], required: false }
+        { name: 'worldinfo', description: 'Include active World Info entries (default: true)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
+        { name: 'messageid', description: 'Generate from this message ID (and prior context) instead of the most recent message', type: [ARGUMENT_TYPE.NUMBER], required: false }
     ],
     unnamedArguments: [{ description: 'One-off direction for the prompt generator LLM', type: [ARGUMENT_TYPE.STRING], required: false }],
     callback: async (args, value) => {
@@ -774,12 +783,14 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         const negativePrompt = typeof args?.negative === 'string' ? args.negative.trim() : '';
         const includePersona = parseBoolArg(args?.persona, true);
         const includeWorldInfo = parseBoolArg(args?.worldinfo, true);
+        const rawMessageId = args?.messageid;
+        const messageId = (rawMessageId !== undefined && rawMessageId !== null && rawMessageId !== '') ? Number(rawMessageId) : null;
 
         toastr.info('Generating background image...');
 
         try {
             const context = getContext();
-            let finalPrompt = await buildImagePrompt(userInstruction, targetCard, 'genbg', { includePersona, includeWorldInfo });
+            let finalPrompt = await buildImagePrompt(userInstruction, targetCard, 'genbg', { includePersona, includeWorldInfo, messageId });
 
             if (isEditPromptEnabled()) {
                 const editedPrompt = await promptUserForEdit(finalPrompt);
@@ -828,7 +839,7 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         }
         return '';
     },
-    helpString: 'Generates a custom background using /drawbg [card="Card Name"] [width=1920] [height=1080] [negative="..."] [persona=true|false] [worldinfo=true|false] [optional direction].',
+    helpString: 'Generates a custom background using /drawbg [card="Card Name"] [width=1920] [height=1080] [negative="..."] [persona=true|false] [worldinfo=true|false] [messageid=x] [optional direction]. messageid generates from message x (and prior context) instead of the most recent message.',
 }));
 
 // Command 2: Inline Scene Generation
@@ -842,7 +853,8 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         { name: 'height', description: 'Image height (optional)', type: [ARGUMENT_TYPE.NUMBER], required: false },
         { name: 'negative', description: 'Negative prompt additions for this generation', type: [ARGUMENT_TYPE.STRING], required: false },
         { name: 'persona', description: 'Include active Persona description (default: true)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
-        { name: 'worldinfo', description: 'Include active World Info entries (default: true)', type: [ARGUMENT_TYPE.BOOLEAN], required: false }
+        { name: 'worldinfo', description: 'Include active World Info entries (default: true)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
+        { name: 'messageid', description: 'Generate from this message ID (and prior context) instead of the most recent message', type: [ARGUMENT_TYPE.NUMBER], required: false }
     ],
     unnamedArguments: [{ description: 'One-off direction for the prompt generator LLM', type: [ARGUMENT_TYPE.STRING], required: false }],
     callback: async (args, value) => {
@@ -851,12 +863,14 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         const negativePrompt = typeof args?.negative === 'string' ? args.negative.trim() : '';
         const includePersona = parseBoolArg(args?.persona, true);
         const includeWorldInfo = parseBoolArg(args?.worldinfo, true);
+        const rawMessageId = args?.messageid;
+        const messageId = (rawMessageId !== undefined && rawMessageId !== null && rawMessageId !== '') ? Number(rawMessageId) : null;
 
         toastr.info('Generating scene image...');
 
         try {
             const context = getContext();
-            let finalPrompt = await buildImagePrompt(userInstruction, targetCard, 'gencustom', { includePersona, includeWorldInfo });
+            let finalPrompt = await buildImagePrompt(userInstruction, targetCard, 'gencustom', { includePersona, includeWorldInfo, messageId });
 
             if (isEditPromptEnabled()) {
                 const editedPrompt = await promptUserForEdit(finalPrompt);
@@ -886,5 +900,5 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         }
         return '';
     },
-    helpString: 'Generates a scene image in chat using /drawscene [card="Card Name"] [width=(sd default)] [height=(sd default)] [negative="..."] [persona=true|false] [worldinfo=true|false] [optional direction].',
+    helpString: 'Generates a scene image in chat using /drawscene [card="Card Name"] [width=(sd default)] [height=(sd default)] [negative="..."] [persona=true|false] [worldinfo=true|false] [messageid=x] [optional direction]. messageid generates from message x (and prior context) instead of the most recent message.',
 }));
