@@ -78,13 +78,9 @@ Generates an image prompt capturing the current dynamic narrative moment (includ
 ```
 
 #### Examples:
-```slash
-# Standard inline scene generation based on recent chat
-/drawscene
+<img width="1147" height="740" alt="Screenshot 2026-07-30 184300" src="https://github.com/user-attachments/assets/132c74fa-9b30-4582-8c07-83fd4f96f7f6" />
+<img width="1137" height="428" alt="Screenshot 2026-07-30 184334" src="https://github.com/user-attachments/assets/a91673d8-9fff-4cb3-8bce-8e058b7aa03a" />
 
-# Target character with a custom direction and custom dimensions
-/drawscene card="Illustrator" width=832 height=1216 Show a close-up of my new sword
-```
 
 ---
 
@@ -111,6 +107,9 @@ Open SillyTavern's **Extensions** tab and expand **Contextual Scene Painter** to
 - **Chat History Token Limit**: Set the maximum token length of recent chat context fed into prompt generation (default: `2048` tokens).
 - **Always Show Prompt Edit Popup**: Check this box to force an edit modal prior to image rendering, allowing you to manually refine prompt tags.
 - **Connection Profile for Prompt LLM**: Pick an optional connection profile (e.g., local small LLM or fast cloud model) to generate the prompt text. The extension switches to this profile during prompt generation and automatically restores your previous active profile afterward.
+<img width="570" height="955" alt="Screenshot 2026-07-30 184421" src="https://github.com/user-attachments/assets/3a98c0b6-1746-400b-bacb-3b5db29de3ab" />
+<img width="567" height="230" alt="Screenshot 2026-07-30 184442" src="https://github.com/user-attachments/assets/f059f967-3241-4a42-8ac9-f381560d5c45" />
+
 
 ---
 
