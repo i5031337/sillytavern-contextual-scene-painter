@@ -54,8 +54,16 @@ Generates an image prompt capturing the current dynamic narrative moment (includ
 ```
 
 #### Examples:
+```slash
+# Basic generation based on recent chat context
+/drawscene
+
+# Specific direction for the scene
+/drawbg show me Elara
+```
+
 <img width="1147" height="740" alt="Screenshot 2026-07-30 184300" src="https://github.com/user-attachments/assets/132c74fa-9b30-4582-8c07-83fd4f96f7f6" />
-<img width="1137" height="428" alt="Screenshot 2026-07-30 184334" src="https://github.com/user-attachments/assets/a91673d8-9fff-4cb3-8bce-8e058b7aa03a" />
+<img width="1132" height="756" alt="Screenshot 2026-07-30 191335" src="https://github.com/user-attachments/assets/c1a92e9c-6ea8-48c3-973d-a76b6659958d" />
 
 
 ---
@@ -74,9 +82,6 @@ Generates an environment/background image prompt based on the setting and contex
 ```slash
 # Basic generation based on recent chat context (1920x1080 default)
 /drawbg
-
-# Specific direction for the scene
-/drawbg make it sunny
 
 # Target a specific character card for context
 /drawbg card="Seraphina" include Seraphina on the left
