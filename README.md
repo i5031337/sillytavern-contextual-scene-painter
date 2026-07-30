@@ -41,7 +41,25 @@ This extension relies on SillyTavern's built-in **Stable Diffusion (`/sd`)** com
 
 ## 🚀 Commands & Usage
 
-### 1. `/drawbg` (Generate & Apply Chat Background)
+
+### 1. `/drawscene` (Generate Inline Chat Scene)
+
+Generates an image prompt capturing the current dynamic narrative moment (including characters, action, poses, lighting, and expressions) and outputs the image directly into the chat stream.
+
+**Aliases:** `/gencustom`, `/genchat`, `/snapshot`, `/drawchat`
+
+#### Syntax:
+```slash
+/drawscene [card="Card Name"] [width=1024] [height=1024] [negative="..."] [persona=true|false] [worldinfo=true|false] [optional specific direction]
+```
+
+#### Examples:
+<img width="1147" height="740" alt="Screenshot 2026-07-30 184300" src="https://github.com/user-attachments/assets/132c74fa-9b30-4582-8c07-83fd4f96f7f6" />
+<img width="1137" height="428" alt="Screenshot 2026-07-30 184334" src="https://github.com/user-attachments/assets/a91673d8-9fff-4cb3-8bce-8e058b7aa03a" />
+
+
+---
+### 2. `/drawbg` (Generate & Apply Chat Background)
 
 Generates an environment/background image prompt based on the setting and context, requests an image via `/sd`, uploads it, and sets it as the active chat background.
 
@@ -66,24 +84,6 @@ Generates an environment/background image prompt based on the setting and contex
 
 <img width="1153" height="478" alt="Screenshot 2026-07-30 190017" src="https://github.com/user-attachments/assets/404db6d2-8a19-4cea-bed7-836e3655a977" />
 <img width="1917" height="906" alt="Screenshot 2026-07-30 190112" src="https://github.com/user-attachments/assets/211bf6db-d8a0-4cc0-93d5-572d9f847abe" />
-
----
-
-### 2. `/drawscene` (Generate Inline Chat Scene)
-
-Generates an image prompt capturing the current dynamic narrative moment (including characters, action, poses, lighting, and expressions) and outputs the image directly into the chat stream.
-
-**Aliases:** `/gencustom`, `/genchat`, `/snapshot`, `/drawchat`
-
-#### Syntax:
-```slash
-/drawscene [card="Card Name"] [width=1024] [height=1024] [negative="..."] [persona=true|false] [worldinfo=true|false] [optional specific direction]
-```
-
-#### Examples:
-<img width="1147" height="740" alt="Screenshot 2026-07-30 184300" src="https://github.com/user-attachments/assets/132c74fa-9b30-4582-8c07-83fd4f96f7f6" />
-<img width="1137" height="428" alt="Screenshot 2026-07-30 184334" src="https://github.com/user-attachments/assets/a91673d8-9fff-4cb3-8bce-8e058b7aa03a" />
-
 
 ---
 
