@@ -1,2 +1,119 @@
-# sillytavern-contextual-scene-painter
-Generate context-aware in-chat and background images with one click, bypassing the active Character and Chat Preset instructions..
+
+---
+
+# Contextual Scene Painter (SillyTavern Extension)
+
+**Contextual Scene Painter** is a no-nonsense AI image prompt generation extension for [SillyTavern](https://github.com/SillyTavern/SillyTavern). It analyzes your ongoing chat history (optionally including active character card details, persona, and/or World Info), to synthesize context-aware image prompts on the fly.
+
+---
+
+## ✨ Features
+
+- **Context-Aware Prompt Generation**: Automatically synthesizes recent chat turns, target character lore, user persona, and relevant World Info entries into clean, high-quality image prompts.
+- **Bypasses Strict LLM Constraints**: Bypasses active chat presets, system prompts, and character post-history instructions that usually interfere with AI image prompt formatting.
+- **Two Specialized Modes**:
+  - **`/drawbg` (Background Mode)**: Focuses on environment design, cinematic framing, weather, lighting, and scenery. Automatically uploads the generated image and applies it to your active chat background at 1080p resolution.
+  - **`/drawscene` (Inline Scene Mode)**: Focuses on narrative action, character dynamic poses, expressions, dynamic visual elements, and focal compositions, outputting images directly into your chat stream.
+- **Dedicated LLM Connection Profiles**: Save tokens on your primary story model by routing image prompt generation to a secondary API/connection profile (e.g., a fast, low-cost model like Gemini Flash, Haiku, or Llama 3 8B).
+- **Independent Context Token Limit**: Set a strict token cap on how much recent chat history is fed into the image prompt generator.
+- **Interactive Prompt Editing**: Option to force a review popup modal before generating, letting you fine-tune or edit the LLM's prompt before image generation.
+- **Preset Management**: Save, load, and manage custom prompt presets for both background and scene generation tasks.
+
+---
+
+## 🛠️ Prerequisites
+
+This extension relies on SillyTavern's built-in **Stable Diffusion (`/sd`)** command. Ensure that your image generation API (Automatic1111, ComfyUI, Forge, Horde, WebUI, etc.) is configured and enabled in SillyTavern's extension settings.
+
+---
+
+## 📥 Installation
+
+1. Open SillyTavern and navigate to the **Extensions** menu (puzzle piece icon).
+2. Click **Install Extension**.
+3. Paste the repository URL for this extension or install it manually by placing the extension folder into:
+   ```text
+   SillyTavern/public/scripts/extensions/third-party/contextual-scene-painter
+   ```
+4. Refresh or restart SillyTavern.
+
+---
+
+## 🚀 Commands & Usage
+
+### 1. `/drawbg` (Generate & Apply Chat Background)
+
+Generates an environment/background image prompt based on the setting and context, requests an image via `/sd`, uploads it, and sets it as the active chat background.
+
+**Aliases:** `/genbg`, `/bgdraw`, `/paintbg`
+
+#### Syntax:
+```slash
+/drawbg [card="Card Name"] [width=1920] [height=1080] [negative="..."] [persona=true|false] [worldinfo=true|false] [optional specific direction]
+```
+
+#### Examples:
+```slash
+# Basic generation based on recent chat context (1920x1080 default)
+/drawbg
+
+# Specific direction for the scene
+/drawbg make it sunny
+
+# Target a specific character card for context
+/drawbg card="Seraphina" include Seraphina on the left
+```
+
+---
+
+### 2. `/drawscene` (Generate Inline Chat Scene)
+
+Generates an image prompt capturing the current dynamic narrative moment (including characters, action, poses, lighting, and expressions) and outputs the image directly into the chat stream.
+
+**Aliases:** `/gencustom`, `/genchat`, `/snapshot`, `/drawchat`
+
+#### Syntax:
+```slash
+/drawscene [card="Card Name"] [width=1024] [height=1024] [negative="..."] [persona=true|false] [worldinfo=true|false] [optional specific direction]
+```
+
+#### Examples:
+```slash
+# Standard inline scene generation based on recent chat
+/drawscene
+
+# Target character with a custom direction and custom dimensions
+/drawscene card="Illustrator" width=832 height=1216 Show a close-up of my new sword
+```
+
+---
+
+## ⚙️ Named Arguments Matrix
+
+| Argument | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `card` | `String` | *(Active Card)* | Name or avatar filename of a target character card to inject into prompt context. |
+| `width` | `Number` | `1920` (`/drawbg`) / Default `/sd` | Output image width in pixels. |
+| `height` | `Number` | `1080` (`/drawbg`) / Default `/sd` | Output image height in pixels. |
+| `negative` | `String` | `""` | Additional negative prompt terms to append to the generation call. |
+| `persona` | `Boolean` | `true` | Set to `false` to exclude your active User Persona description. |
+| `worldinfo` | `Boolean` | `true` | Set to `false` to exclude triggered World Info / Lorebook entries. |
+
+---
+
+## 🎛️ Extension Settings
+
+Open SillyTavern's **Extensions** tab and expand **Contextual Scene Painter** to adjust the following settings:
+
+- **Background & Scene Presets**: Quickly save, load, or delete custom system prompts and prompt generation instructions.
+- **System Prompt Override**: Customize the system role prompt fed to the prompt generation LLM.
+- **Prompt Instruction**: Fine-tune instructions regarding formatting, style emphasis, tag styles, or negative exclusions.
+- **Chat History Token Limit**: Set the maximum token length of recent chat context fed into prompt generation (default: `2048` tokens).
+- **Always Show Prompt Edit Popup**: Check this box to force an edit modal prior to image rendering, allowing you to manually refine prompt tags.
+- **Connection Profile for Prompt LLM**: Pick an optional connection profile (e.g., local small LLM or fast cloud model) to generate the prompt text. The extension switches to this profile during prompt generation and automatically restores your previous active profile afterward.
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. Feel free to modify and extend!
