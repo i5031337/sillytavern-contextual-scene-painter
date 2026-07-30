@@ -64,6 +64,9 @@ Generates an environment/background image prompt based on the setting and contex
 /drawbg card="Seraphina" include Seraphina on the left
 ```
 
+<img width="1153" height="478" alt="Screenshot 2026-07-30 190017" src="https://github.com/user-attachments/assets/404db6d2-8a19-4cea-bed7-836e3655a977" />
+<img width="1917" height="906" alt="Screenshot 2026-07-30 190112" src="https://github.com/user-attachments/assets/211bf6db-d8a0-4cc0-93d5-572d9f847abe" />
+
 ---
 
 ### 2. `/drawscene` (Generate Inline Chat Scene)
