@@ -59,7 +59,7 @@ Generates an image prompt capturing the current dynamic narrative moment (includ
 /drawscene
 
 # Specific direction for the scene
-/drawbg show me Elara
+/drawscene show me Elara
 ```
 
 <img width="1147" height="740" alt="Screenshot 2026-07-30 184300" src="https://github.com/user-attachments/assets/132c74fa-9b30-4582-8c07-83fd4f96f7f6" />
