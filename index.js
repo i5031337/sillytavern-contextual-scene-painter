@@ -2,7 +2,7 @@ import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.j
 import { SlashCommand } from '/scripts/slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE } from '/scripts/slash-commands/SlashCommandArgument.js';
 import { getContext, extension_settings } from '/scripts/extensions.js';
-import { getRequestHeaders, eventSource, event_types, saveSettingsDebounced } from '/script.js';
+import { eventSource, event_types, saveSettingsDebounced } from '/script.js';
 import { callGenericPopup, POPUP_TYPE } from '/scripts/popup.js';
 
 // ==========================================
@@ -704,40 +704,19 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
 
 async function uploadAndSetBackground(imageUrl) {
     try {
-        const fetchUrl = imageUrl.startsWith('/') || imageUrl.startsWith('http') ? imageUrl : '/' + imageUrl;
-
-        const response = await fetch(fetchUrl);
-        if (!response.ok) throw new Error(`Failed to retrieve image from ${fetchUrl}`);
-        const blob = await response.blob();
-
-        const fileName = `bg_gen_${Date.now()}.png`;
-        const file = new File([blob], fileName, { type: blob.type || 'image/png' });
-
-        const formData = new FormData();
-        formData.append('avatar', file);
-
-        const headers = { ...getRequestHeaders() };
-        delete headers['Content-Type'];
-        delete headers['content-type'];
-
-        const uploadRes = await fetch('/api/backgrounds/upload', {
-            method: 'POST', body: formData, headers: headers, 
-        });
-
-        if (!uploadRes.ok) throw new Error(`Upload failed: ${uploadRes.status}`);
-
-        let finalFileName = fileName;
-        try {
-            const resData = await uploadRes.json();
-            if (typeof resData === 'string') finalFileName = resData;
-            else if (resData?.path) finalFileName = resData.path.split('/').pop().split('\\').pop();
-            else if (resData?.file) finalFileName = resData.file;
-        } catch (e) { }
-
-        const context = getContext();
-        const relativePath = `backgrounds/${finalFileName}`;
+        // ST's own chat-scoped custom background list (chat_metadata.chat_backgrounds) treats each
+        // entry as a raw, fetchable URL string rather than requiring it live under backgrounds/ —
+        // see public/scripts/backgrounds.js, where custom (isCustom) entries are used as-is:
+        //   const url = isCustom ? bg : getBackgroundPath(bg);
+        // So we can point the chat background directly at the image the SD extension already wrote
+        // to disk, instead of downloading it and re-uploading a duplicate copy via
+        // /api/backgrounds/upload. This trades away having an independent copy (if the original
+        // generated image is ever deleted, e.g. character image folder cleanup, the background link
+        // would break) in exchange for skipping an extra fetch+upload round trip.
+        const relativePath = imageUrl.replace(/^\/+/, '');
         const cssUrl = `url("${relativePath}")`;
 
+        const context = getContext();
         const chatMetadata = context.chatMetadata;
         const list = Array.isArray(chatMetadata['chat_backgrounds']) ? chatMetadata['chat_backgrounds'] : [];
         list.push(relativePath);
