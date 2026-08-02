@@ -825,7 +825,7 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
 SlashCommandParser.addCommandObject(SlashCommand.fromProps({
     name: 'drawscene',
     aliases: ['gencustom', 'genchat', 'snapshot', 'drawchat'],
-    returns: 'Generates an image in the chat stream using current scene context',
+    returns: 'the path/URL of the generated image, so it can be piped into another command (e.g. /drawscene | /something {{pipe}})',
     namedArguments: [
         { name: 'card', description: 'Character card name to include as prompt context', type: [ARGUMENT_TYPE.STRING], required: false },
         { name: 'width', description: 'Image width (optional)', type: [ARGUMENT_TYPE.NUMBER], required: false },
@@ -871,13 +871,35 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             if (negativePrompt) sdCommand += ` negative=${quoteSlashArg(negativePrompt)}`;
             sdCommand += ` ${quoteSlashArg(finalPrompt)}`;
 
-            await context.executeSlashCommands(sdCommand);
+            const sdResult = await context.executeSlashCommands(sdCommand);
+
+            let imageUrl = null;
+            const rawPipe = sdResult?.pipe ?? sdResult?.value ?? sdResult;
+
+            if (typeof rawPipe === 'string') {
+                const trimmed = rawPipe.trim();
+                if (trimmed.startsWith('user/images') || trimmed.startsWith('/user/images') || trimmed.startsWith('http')) {
+                    imageUrl = trimmed;
+                } else {
+                    const matches = [...trimmed.matchAll(/(?:src=["']?|!\[.*?\]\()([^"'\s\)]+)/gi)];
+                    if (matches.length > 0) imageUrl = matches[matches.length - 1][1];
+                }
+            }
+
+            if (!imageUrl) {
+                const strResult = typeof sdResult === 'object' ? JSON.stringify(sdResult) : String(sdResult);
+                const pathMatches = [...strResult.matchAll(/(user\/images\/[^\s"':]+\.(?:png|jpg|jpeg|webp))/gi)];
+                if (pathMatches.length > 0) imageUrl = pathMatches[pathMatches.length - 1][1];
+            }
+
             toastr.success('Scene image requested!');
-            
+
+            return imageUrl || (typeof rawPipe === 'string' ? rawPipe : '');
+
         } catch (err) {
             toastr.error(`Scene image generation failed: ${err.message}`);
         }
         return '';
     },
-    helpString: 'Generates a scene image in chat using /drawscene [card="Card Name"] [width=(sd default)] [height=(sd default)] [negative="..."] [persona=true|false] [worldinfo=true|false] [messageid=x] [optional direction]. messageid generates from message x (and prior context) instead of the most recent message.',
+    helpString: 'Generates a scene image in chat using /drawscene [card="Card Name"] [width=(sd default)] [height=(sd default)] [negative="..."] [persona=true|false] [worldinfo=true|false] [messageid=x] [optional direction]. messageid generates from message x (and prior context) instead of the most recent message. Returns the generated image path via {{pipe}}, so it can be chained, e.g. /drawscene | /something-else {{pipe}}.',
 }));
