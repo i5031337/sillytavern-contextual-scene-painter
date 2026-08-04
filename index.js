@@ -558,6 +558,11 @@ async function getActivePersonaDescription() {
 
 let profileSwitchQueue = Promise.resolve();
 
+async function readActiveProfileName(context) {
+    const result = await context.executeSlashCommands('/profile');
+    return (result?.pipe ?? result?.value ?? result ?? '').toString().trim();
+}
+
 async function generateWithOptionalProfile(context, fullRawPrompt) {
     const profileName = (moduleSettings.connectionProfile || '').trim();
     if (!profileName) {
@@ -566,22 +571,43 @@ async function generateWithOptionalProfile(context, fullRawPrompt) {
     }
 
     const runTask = async () => {
-        let previousProfile = '';
+        // previousProfile === null means "we don't know what was active" (the read failed) --
+        // in that case we genuinely can't restore anything and must skip it.
+        // previousProfile === '' is a DIFFERENT, legitimate state: no profile was active. That
+        // still has to be restored, or the alternate profile (e.g. a slow Horde profile) stays
+        // live as the main connection for every generation that happens after this one --
+        // including whatever runs next in the same command chain. Silently treating '' as
+        // "nothing to restore" was the bug: it left Horde stuck active past this call.
+        let previousProfile = null;
         try {
-            const currentResult = await context.executeSlashCommands('/profile');
-            previousProfile = (currentResult?.pipe ?? currentResult?.value ?? currentResult ?? '').toString().trim();
+            previousProfile = await readActiveProfileName(context);
+            console.debug(`[scene-painter] Active profile before switch: "${previousProfile || '(none)'}"`);
         } catch (err) {
-            console.warn('[scene-painter] Could not read active profile:', err);
+            console.warn('[scene-painter] Could not read active profile -- will not attempt to restore afterward:', err);
         }
 
         try {
             await context.executeSlashCommands(`/profile ${quoteSlashArg(profileName)}`);
+            console.debug(`[scene-painter] Switched profile to "${profileName}", generating...`);
             const raw = await context.generateRaw(fullRawPrompt);
+            console.debug(`[scene-painter] Generation via "${profileName}" complete.`);
             return cleanGeneratedPrompt(raw);
         } finally {
-            if (previousProfile) {
+            if (previousProfile !== null && previousProfile.toLowerCase() !== profileName.toLowerCase()) {
+                const restoreTarget = previousProfile === '' ? 'None' : previousProfile;
                 try {
-                    await context.executeSlashCommands(`/profile ${quoteSlashArg(previousProfile)}`);
+                    await context.executeSlashCommands(`/profile ${quoteSlashArg(restoreTarget)}`);
+
+                    // Horde profiles in particular are slow enough that a restore which silently
+                    // no-ops is easy to miss until much later. Confirm it actually took.
+                    const nowActive = await readActiveProfileName(context);
+                    const restoredOk = nowActive.toLowerCase() === restoreTarget.toLowerCase()
+                        || (restoreTarget === 'None' && !nowActive);
+                    if (!restoredOk) {
+                        console.warn(`[scene-painter] Profile restore did not take effect as expected. Wanted "${restoreTarget}", ST now reports "${nowActive || '(none)'}". The alternate profile may still be active.`);
+                    } else {
+                        console.debug(`[scene-painter] Profile restored to "${restoreTarget}".`);
+                    }
                 } catch (err) {
                     console.warn(`[scene-painter] Failed to restore profile "${previousProfile}":`, err);
                 }
@@ -849,7 +875,9 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
 
         try {
             const context = getContext();
+            console.debug('[scene-painter] drawscene: building image prompt...');
             let finalPrompt = await buildImagePrompt(userInstruction, targetCard, 'gencustom', { includePersona, includeWorldInfo, messageId });
+            console.debug('[scene-painter] drawscene: prompt built, showing edit popup:', finalPrompt);
 
             if (isEditPromptEnabled()) {
                 const editedPrompt = await promptUserForEdit(finalPrompt);
@@ -871,7 +899,19 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             if (negativePrompt) sdCommand += ` negative=${quoteSlashArg(negativePrompt)}`;
             sdCommand += ` ${quoteSlashArg(finalPrompt)}`;
 
+            // Diagnostic: confirm which connection profile is live right before dispatching to /sd.
+            // If this ever logs the extension's alternate profile (e.g. an AI Horde text profile)
+            // instead of the user's normal one, the profile restore in generateWithOptionalProfile
+            // didn't take -- that's the thing to chase.
+            try {
+                const activeProfile = await readActiveProfileName(context);
+                console.debug(`[scene-painter] drawscene: dispatching to /sd with profile "${activeProfile || '(none)'}":`, finalPrompt);
+            } catch (err) {
+                console.debug('[scene-painter] drawscene: dispatching to /sd (could not read active profile for logging):', finalPrompt);
+            }
+
             const sdResult = await context.executeSlashCommands(sdCommand);
+            console.debug('[scene-painter] drawscene: /sd returned:', sdResult);
 
             let imageUrl = null;
             const rawPipe = sdResult?.pipe ?? sdResult?.value ?? sdResult;
