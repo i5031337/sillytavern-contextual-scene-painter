@@ -29,11 +29,9 @@ const DEFAULT_GENCUSTOM_PROMPT_INSTRUCTION_TAGS = 'Synthesize the provided chara
 
 const DEFAULT_HISTORY_TOKEN_LIMIT = 2048;
 const DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT = 8192;
-const DEFAULT_PROMPT_STYLE = 'natural'; // 'natural' | 'tags'
 
-function defaultCommandSettings(commandKey = 'genbg', promptStyle) {
-    const style = promptStyle || moduleSettings?.promptStyle || DEFAULT_PROMPT_STYLE;
-    const useTags = style === 'tags';
+function defaultCommandSettings(commandKey = 'genbg', promptStyle = 'natural') {
+    const useTags = promptStyle === 'tags';
     if (commandKey === 'gencustom') {
         return {
             systemPrompt: useTags ? DEFAULT_GENCUSTOM_SYSTEM_PROMPT_TAGS : DEFAULT_GENCUSTOM_SYSTEM_PROMPT,
@@ -54,13 +52,12 @@ function initExtensionSettings() {
     // 1. Initialize default settings
     if (!extension_settings.customBgGen) {
         extension_settings.customBgGen = {
-            genbg: defaultCommandSettings('genbg', DEFAULT_PROMPT_STYLE),
-            gencustom: defaultCommandSettings('gencustom', DEFAULT_PROMPT_STYLE),
+            genbg: defaultCommandSettings('genbg', 'natural'),
+            gencustom: defaultCommandSettings('gencustom', 'natural'),
             forceEdit: true,
             connectionProfile: '',
             genMaxResponse: 0,
             genTemperature: null,
-            promptStyle: DEFAULT_PROMPT_STYLE,
             disableFreeExtend: true,
             includeCharacter: true,
             includePersona: true,
@@ -76,6 +73,7 @@ function initExtensionSettings() {
     // Clean up legacy settings keys
     if (moduleSettings.presetName !== undefined) delete moduleSettings.presetName;
     if (moduleSettings.genMaxContext !== undefined) delete moduleSettings.genMaxContext;
+    if (moduleSettings.promptStyle !== undefined) delete moduleSettings.promptStyle;
 
     // Migrate old prompt settings
     if (typeof moduleSettings.systemPrompt === 'string' || typeof moduleSettings.promptInstruction === 'string') {
@@ -97,9 +95,9 @@ function initExtensionSettings() {
         moduleSettings.genbgPresets = [...moduleSettings.presets];
         delete moduleSettings.presets;
     }
-    if (typeof moduleSettings.promptStyle !== 'string') moduleSettings.promptStyle = DEFAULT_PROMPT_STYLE;
-    if (!moduleSettings.genbg) moduleSettings.genbg = defaultCommandSettings('genbg');
-    if (!moduleSettings.gencustom) moduleSettings.gencustom = defaultCommandSettings('gencustom');
+
+    if (!moduleSettings.genbg) moduleSettings.genbg = defaultCommandSettings('genbg', 'natural');
+    if (!moduleSettings.gencustom) moduleSettings.gencustom = defaultCommandSettings('gencustom', 'natural');
     if (typeof moduleSettings.connectionProfile !== 'string') moduleSettings.connectionProfile = '';
     
     if (!Number.isFinite(Number(moduleSettings.genMaxResponse))) moduleSettings.genMaxResponse = 0;
@@ -188,18 +186,6 @@ function initExtensionSettings() {
 
                         <hr>
 
-                        <label title="Default prompt style used when loading the built-in 'Default' preset or resetting a command's prompts.">Default Prompt Style</label>
-                        <select id="custom_bg_prompt_style" class="text_pole" style="width:100%; margin-bottom:10px;">
-                            <option value="natural">Natural language (advanced text-encoder models)</option>
-                            <option value="tags">Danbooru tags (SDXL and similar tag-trained models)</option>
-                        </select>
-                        <div style="display: flex; gap: 5px; margin-bottom: 10px;">
-                            <button id="custom_bg_genbg_style_reset" class="menu_button" style="flex:1;" title="Overwrite Background prompts with the selected style's defaults">Reset Background to Style Default</button>
-                            <button id="custom_bg_gencustom_style_reset" class="menu_button" style="flex:1;" title="Overwrite Scene prompts with the selected style's defaults">Reset Scene to Style Default</button>
-                        </div>
-
-                        <hr>
-
                         <label title="Maximum number of tokens of recent chat history to feed into prompt generation. Independent of active character context limits.">Chat History Token Limit (ceiling within total prompt budget)</label>
                         <input type="number" id="custom_bg_history_token_limit" class="text_pole" min="1" step="1" style="width:100%; margin-bottom:10px;" />
 
@@ -259,7 +245,6 @@ function initExtensionSettings() {
     $('#custom_bg_gen_temperature').val(moduleSettings.genTemperature !== null && moduleSettings.genTemperature !== undefined ? moduleSettings.genTemperature : '');
 
     $('#custom_bg_force_edit').prop('checked', moduleSettings.forceEdit);
-    $('#custom_bg_prompt_style').val(moduleSettings.promptStyle || DEFAULT_PROMPT_STYLE);
     $('#custom_bg_disable_free_extend').prop('checked', moduleSettings.disableFreeExtend !== false);
 
     // 4. Persistence bindings
@@ -342,28 +327,9 @@ function initExtensionSettings() {
         saveSettings();
     });
 
-    $('#custom_bg_prompt_style').on('change', function() {
-        moduleSettings.promptStyle = $(this).val();
-        saveSettings();
-    });
-
     $('#custom_bg_disable_free_extend').on('change', function() {
         moduleSettings.disableFreeExtend = $(this).is(':checked');
         saveSettings();
-    });
-
-    $('#custom_bg_genbg_style_reset').on('click', () => {
-        const def = defaultCommandSettings('genbg', moduleSettings.promptStyle);
-        $('#custom_bg_genbg_system_prompt').val(def.systemPrompt).trigger('input');
-        $('#custom_bg_genbg_prompt_instruction').val(def.promptInstruction).trigger('input');
-        toastr.success('Background prompts reset to style default.');
-    });
-
-    $('#custom_bg_gencustom_style_reset').on('click', () => {
-        const def = defaultCommandSettings('gencustom', moduleSettings.promptStyle);
-        $('#custom_bg_gencustom_system_prompt').val(def.systemPrompt).trigger('input');
-        $('#custom_bg_gencustom_prompt_instruction').val(def.promptInstruction).trigger('input');
-        toastr.success('Scene prompts reset to style default.');
     });
 
     refreshConnectionProfilesDropdown = async function populateConnectionProfilesDropdown() {
@@ -426,7 +392,8 @@ function initExtensionSettings() {
     function populatePresetsDropdown(selectId, presetsArray) {
         const select = $(`#${selectId}`);
         select.empty();
-        select.append('<option value="-1">⭐ Default</option>');
+        select.append('<option value="def-natural">⭐ Default (Natural Language)</option>');
+        select.append('<option value="def-tags">⭐ Default (Danbooru Tags)</option>');
         presetsArray.forEach((preset, index) => {
             select.append(`<option value="${index}">${preset.name}</option>`);
         });
@@ -434,16 +401,22 @@ function initExtensionSettings() {
 
     function loadPresetToCommand(presetsArray, commandKey) {
         const selectId = `custom_bg_${commandKey}_preset_select`;
-        const index = $(`#${selectId}`).val();
-        if (index === null || index === undefined) return;
+        const val = $(`#${selectId}`).val();
+        if (val === null || val === undefined) return;
 
         let systemPrompt, promptInstruction, presetName;
-        if (index === '-1') {
-            const def = defaultCommandSettings(commandKey, moduleSettings.promptStyle);
+        if (val === 'def-natural') {
+            const def = defaultCommandSettings(commandKey, 'natural');
             systemPrompt = def.systemPrompt;
             promptInstruction = def.promptInstruction;
-            presetName = 'Default';
+            presetName = 'Default (Natural Language)';
+        } else if (val === 'def-tags') {
+            const def = defaultCommandSettings(commandKey, 'tags');
+            systemPrompt = def.systemPrompt;
+            promptInstruction = def.promptInstruction;
+            presetName = 'Default (Danbooru Tags)';
         } else {
+            const index = parseInt(val, 10);
             const preset = presetsArray[index];
             if (!preset) return;
             systemPrompt = preset.systemPrompt;
@@ -471,11 +444,12 @@ function initExtensionSettings() {
 
     function deletePreset(commandKey, presetsArray) {
         const selectId = `custom_bg_${commandKey}_preset_select`;
-        const index = $(`#${selectId}`).val();
-        if (index === '-1' || index === null || index === undefined) {
-            toastr.warning('Cannot delete the built-in Default preset.');
+        const val = $(`#${selectId}`).val();
+        if (val === 'def-natural' || val === 'def-tags' || val === '-1' || val === null || val === undefined) {
+            toastr.warning('Cannot delete built-in Default presets.');
             return;
         }
+        const index = parseInt(val, 10);
         if (!presetsArray[index]) return;
         const presetName = presetsArray[index].name;
         presetsArray.splice(index, 1);
@@ -1038,7 +1012,7 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
     } = options;
 
     const context = getContext();
-    const defaults = defaultCommandSettings(commandKey);
+    const defaults = defaultCommandSettings(commandKey, 'natural');
     const commandSettings = moduleSettings[commandKey] || defaults;
 
     // Calculate budget ceilings early so World Info can use the context setting
