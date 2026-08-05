@@ -62,6 +62,9 @@ function initExtensionSettings() {
             genTemperature: null,
             promptStyle: DEFAULT_PROMPT_STYLE,
             disableFreeExtend: true,
+            includeCharacter: true,
+            includePersona: true,
+            includeWorldInfo: true,
             historyTokenLimit: DEFAULT_HISTORY_TOKEN_LIMIT,
             totalContextTokenLimit: DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT,
             genbgPresets: [],
@@ -105,6 +108,10 @@ function initExtensionSettings() {
     }
 
     if (typeof moduleSettings.disableFreeExtend !== 'boolean') moduleSettings.disableFreeExtend = true;
+    if (typeof moduleSettings.includeCharacter !== 'boolean') moduleSettings.includeCharacter = true;
+    if (typeof moduleSettings.includePersona !== 'boolean') moduleSettings.includePersona = true;
+    if (typeof moduleSettings.includeWorldInfo !== 'boolean') moduleSettings.includeWorldInfo = true;
+
     if (!Number.isFinite(Number(moduleSettings.historyTokenLimit)) || Number(moduleSettings.historyTokenLimit) <= 0) {
         moduleSettings.historyTokenLimit = DEFAULT_HISTORY_TOKEN_LIMIT;
     }
@@ -160,6 +167,24 @@ function initExtensionSettings() {
                         <textarea id="custom_bg_gencustom_system_prompt" class="text_pole" rows="2" style="width:100%; resize:vertical; margin-bottom:10px;"></textarea>
                         <label>Prompt Instruction</label>
                         <textarea id="custom_bg_gencustom_prompt_instruction" class="text_pole" rows="4" style="width:100%; resize:vertical; margin-bottom:10px;"></textarea>
+
+                        <hr>
+
+                        <h4 style="margin-bottom: 4px;">Default Context Inclusion</h4>
+                        <label class="checkbox_label" title="Include active Character card details by default when no specific card argument is passed.">
+                            <input type="checkbox" id="custom_bg_include_character" />
+                            <span>Include Character Details by Default</span>
+                        </label>
+
+                        <label class="checkbox_label" title="Include active User Persona description by default.">
+                            <input type="checkbox" id="custom_bg_include_persona" />
+                            <span>Include User Persona by Default</span>
+                        </label>
+
+                        <label class="checkbox_label" title="Include active World Info / Lorebook entries by default.">
+                            <input type="checkbox" id="custom_bg_include_world_info" />
+                            <span>Include World Info / Lore by Default</span>
+                        </label>
 
                         <hr>
 
@@ -222,6 +247,11 @@ function initExtensionSettings() {
     $('#custom_bg_genbg_prompt_instruction').val(moduleSettings.genbg.promptInstruction);
     $('#custom_bg_gencustom_system_prompt').val(moduleSettings.gencustom.systemPrompt);
     $('#custom_bg_gencustom_prompt_instruction').val(moduleSettings.gencustom.promptInstruction);
+    
+    $('#custom_bg_include_character').prop('checked', moduleSettings.includeCharacter !== false);
+    $('#custom_bg_include_persona').prop('checked', moduleSettings.includePersona !== false);
+    $('#custom_bg_include_world_info').prop('checked', moduleSettings.includeWorldInfo !== false);
+
     $('#custom_bg_history_token_limit').val(moduleSettings.historyTokenLimit);
     $('#custom_bg_total_context_token_limit').val(moduleSettings.totalContextTokenLimit);
     
@@ -257,6 +287,19 @@ function initExtensionSettings() {
     });
     $('#custom_bg_gencustom_prompt_instruction').on('input', function() {
         moduleSettings.gencustom.promptInstruction = $(this).val();
+        saveSettings();
+    });
+
+    $('#custom_bg_include_character').on('change', function() {
+        moduleSettings.includeCharacter = $(this).is(':checked');
+        saveSettings();
+    });
+    $('#custom_bg_include_persona').on('change', function() {
+        moduleSettings.includePersona = $(this).is(':checked');
+        saveSettings();
+    });
+    $('#custom_bg_include_world_info').on('change', function() {
+        moduleSettings.includeWorldInfo = $(this).is(':checked');
         saveSettings();
     });
 
@@ -328,31 +371,35 @@ function initExtensionSettings() {
         if (!dropdown) return;
 
         const currentValue = moduleSettings.connectionProfile || '';
-        const profileMap = new Map();
+        const profileNames = new Set();
 
         try {
             const connExt = window.extension_settings?.connectionProfiles;
             if (connExt?.profiles) {
-                for (const [id, profile] of Object.entries(connExt.profiles)) {
-                    if (profile && profile.name) profileMap.set(id, profile.name);
+                for (const profile of Object.values(connExt.profiles)) {
+                    if (profile && profile.name) {
+                        profileNames.add(profile.name.trim());
+                    }
                 }
             }
         } catch (e) { /* ignore */ }
 
-        if (profileMap.size === 0) {
+        if (profileNames.size === 0) {
             const domSelects = document.querySelectorAll('select[id*="connection_profile"], select[id*="profile_select"]');
             domSelects.forEach(select => {
+                if (select.id === 'custom_bg_connection_profile') return; // Exclude self
                 Array.from(select.options).forEach(opt => {
-                    if (opt.value && opt.value !== 'null' && opt.value !== 'undefined') {
-                        profileMap.set(opt.value, opt.textContent.trim());
+                    const text = opt.textContent.trim();
+                    if (text && opt.value && opt.value !== 'null' && opt.value !== 'undefined' && !text.startsWith('(')) {
+                        profileNames.add(text);
                     }
                 });
             });
         }
 
         dropdown.innerHTML = '<option value="">(None - Use currently active API)</option>';
-        const sorted = [...profileMap.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-        sorted.forEach(([id, name]) => {
+        const sortedNames = [...profileNames].sort((a, b) => a.localeCompare(b));
+        sortedNames.forEach(name => {
             const option = document.createElement('option');
             option.value = name;
             option.textContent = name;
@@ -360,7 +407,7 @@ function initExtensionSettings() {
         });
 
         if (currentValue) {
-            const exists = sorted.some(([_, name]) => name === currentValue);
+            const exists = sortedNames.includes(currentValue);
             if (exists) {
                 dropdown.value = currentValue;
             } else {
@@ -685,12 +732,6 @@ async function readActiveProfileName(context) {
     return (result?.pipe ?? result?.value ?? result ?? '').toString().trim();
 }
 
-/**
- * Temporary wrapper that directly overrides SillyTavern's active textgen/openai
- * settings objects via getContext() for prompt generation, then restores defaults.
- */
-
-
 async function collectSettingsTargets(context) {
     const targets = [];
     const addTarget = (obj) => {
@@ -989,7 +1030,12 @@ async function generateWithOptionalProfile(context, fullRawPrompt) {
 }
 
 async function buildImagePrompt(userInstruction, targetCard, commandKey, options = {}) {
-    const { includePersona = true, includeWorldInfo = true, messageId = null } = options;
+    const {
+        includePersona = moduleSettings.includePersona !== false,
+        includeWorldInfo = moduleSettings.includeWorldInfo !== false,
+        includeCharacter = moduleSettings.includeCharacter !== false,
+        messageId = null
+    } = options;
 
     const context = getContext();
     const defaults = defaultCommandSettings(commandKey);
@@ -1006,7 +1052,18 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
     const promptInstruction = commandSettings.promptInstruction || defaults.promptInstruction;
     let systemPrompt = commandSettings.systemPrompt || defaults.systemPrompt;
 
-    const charIdx = resolveCharacterIndex(targetCard);
+    let charIdx = null;
+    if (includeCharacter) {
+        if (targetCard) {
+            charIdx = resolveCharacterIndex(targetCard);
+        } else {
+            const activeIdx = (context.characterId !== undefined && context.characterId !== null) ? Number(context.characterId) : null;
+            if (activeIdx !== null && activeIdx >= 0 && context.characters?.[activeIdx]) {
+                charIdx = activeIdx;
+            }
+        }
+    }
+
     const userName = context.name1 || 'User';
 
     const fullChatLog = context.chat || [];
@@ -1033,7 +1090,6 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
                     .filter(m => m && !m.is_system && !m.is_hidden)
                     .map(m => `${m.name}: ${m.mes}`);
                     
-                // Use totalBudget instead of hardcoded 2000
                 const wiResult = await getWorldInfoPrompt(chatStrings, totalBudget, true);
                 if (typeof wiResult === 'string') {
                     wiText = wiResult;
@@ -1047,7 +1103,7 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
     }
 
     let targetCharName = '';
-    if (charIdx !== null) {
+    if (charIdx !== null && context.characters?.[charIdx]) {
         targetCharName = context.characters[charIdx]?.name || '';
     }
 
@@ -1069,7 +1125,7 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
     let fixedPromptHead = '';
     let fixedPromptTail = '';
 
-    if (charIdx !== null) {
+    if (charIdx !== null && context.characters?.[charIdx]) {
         const targetCharacter = context.characters[charIdx];
 
         fixedPromptHead += `<target_character>\n`;
@@ -1169,31 +1225,53 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
     aliases: ['genbg', 'bgdraw', 'paintbg'],
     returns: 'Generates an environment background image and applies it to the chat background',
     namedArguments: [
-        { name: 'card', description: 'Character card name to include as prompt context', type: [ARGUMENT_TYPE.STRING], required: false },
+        { name: 'card', description: 'Character card name or boolean flag (default: from settings)', type: [ARGUMENT_TYPE.STRING, ARGUMENT_TYPE.BOOLEAN], required: false },
         { name: 'width', description: 'Image width (default: 1920)', type: [ARGUMENT_TYPE.NUMBER], required: false },
         { name: 'height', description: 'Image height (default: 1080)', type: [ARGUMENT_TYPE.NUMBER], required: false },
         { name: 'negative', description: 'Negative prompt additions for this generation', type: [ARGUMENT_TYPE.STRING], required: false },
-        { name: 'persona', description: 'Include active Persona description (default: true)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
-        { name: 'worldinfo', description: 'Include active World Info entries (default: true)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
+        { name: 'persona', description: 'Include active Persona description (default: from settings)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
+        { name: 'worldinfo', description: 'Include active World Info entries (default: from settings)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
         { name: 'messageid', description: 'Generate from this message ID (and prior context) instead of the most recent message', type: [ARGUMENT_TYPE.NUMBER], required: false }
     ],
     unnamedArguments: [{ description: 'One-off direction for the prompt generator LLM', type: [ARGUMENT_TYPE.STRING], required: false }],
     callback: async (args, value) => {
         const userInstruction = typeof value === 'string' ? value.trim() : '';
-        const targetCard = args?.card?.trim() || null;
+        const rawCard = args?.card;
         const width = args?.width || 1920;
         const height = args?.height || 1080;
         const negativePrompt = typeof args?.negative === 'string' ? args.negative.trim() : '';
-        const includePersona = parseBoolArg(args?.persona, true);
-        const includeWorldInfo = parseBoolArg(args?.worldinfo, true);
+        const includePersona = parseBoolArg(args?.persona, moduleSettings.includePersona !== false);
+        const includeWorldInfo = parseBoolArg(args?.worldinfo, moduleSettings.includeWorldInfo !== false);
         const rawMessageId = args?.messageid;
         const messageId = (rawMessageId !== undefined && rawMessageId !== null && rawMessageId !== '') ? Number(rawMessageId) : null;
+
+        let includeCharacter = moduleSettings.includeCharacter !== false;
+        let targetCard = null;
+
+        if (rawCard !== undefined && rawCard !== null && rawCard !== '') {
+            const parsedBool = parseBoolArg(rawCard, null);
+            if (parsedBool === false) {
+                includeCharacter = false;
+                targetCard = null;
+            } else if (parsedBool === true) {
+                includeCharacter = true;
+                targetCard = null;
+            } else {
+                includeCharacter = true;
+                targetCard = String(rawCard).trim();
+            }
+        }
 
         toastr.info('Generating background image...');
 
         try {
             const context = getContext();
-            let finalPrompt = await buildImagePrompt(userInstruction, targetCard, 'genbg', { includePersona, includeWorldInfo, messageId });
+            let finalPrompt = await buildImagePrompt(userInstruction, targetCard, 'genbg', {
+                includePersona,
+                includeWorldInfo,
+                includeCharacter,
+                messageId
+            });
 
             if (isEditPromptEnabled()) {
                 const editedPrompt = await promptUserForEdit(finalPrompt);
@@ -1242,7 +1320,7 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         }
         return '';
     },
-    helpString: 'Generates a custom background using /drawbg [card="Card Name"] [width=1920] [height=1080] [negative="..."] [persona=true|false] [worldinfo=true|false] [messageid=x] [optional direction]. messageid generates from message x (and prior context) instead of the most recent message.',
+    helpString: 'Generates a custom background using /drawbg [card="Card Name"|true|false] [width=1920] [height=1080] [negative="..."] [persona=true|false] [worldinfo=true|false] [messageid=x] [optional direction]. messageid generates from message x (and prior context) instead of the most recent message.',
 }));
 
 // Command 2: Inline Scene Generation
@@ -1251,30 +1329,52 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
     aliases: ['gencustom', 'genchat', 'snapshot', 'drawchat'],
     returns: 'the path/URL of the generated image, so it can be piped into another command (e.g. /drawscene | /something {{pipe}})',
     namedArguments: [
-        { name: 'card', description: 'Character card name to include as prompt context', type: [ARGUMENT_TYPE.STRING], required: false },
+        { name: 'card', description: 'Character card name or boolean flag (default: from settings)', type: [ARGUMENT_TYPE.STRING, ARGUMENT_TYPE.BOOLEAN], required: false },
         { name: 'width', description: 'Image width (optional)', type: [ARGUMENT_TYPE.NUMBER], required: false },
         { name: 'height', description: 'Image height (optional)', type: [ARGUMENT_TYPE.NUMBER], required: false },
         { name: 'negative', description: 'Negative prompt additions for this generation', type: [ARGUMENT_TYPE.STRING], required: false },
-        { name: 'persona', description: 'Include active Persona description (default: true)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
-        { name: 'worldinfo', description: 'Include active World Info entries (default: true)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
+        { name: 'persona', description: 'Include active Persona description (default: from settings)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
+        { name: 'worldinfo', description: 'Include active World Info entries (default: from settings)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
         { name: 'messageid', description: 'Generate from this message ID (and prior context) instead of the most recent message', type: [ARGUMENT_TYPE.NUMBER], required: false }
     ],
     unnamedArguments: [{ description: 'One-off direction for the prompt generator LLM', type: [ARGUMENT_TYPE.STRING], required: false }],
     callback: async (args, value) => {
         const userInstruction = typeof value === 'string' ? value.trim() : '';
-        const targetCard = args?.card?.trim() || null;
+        const rawCard = args?.card;
         const negativePrompt = typeof args?.negative === 'string' ? args.negative.trim() : '';
-        const includePersona = parseBoolArg(args?.persona, true);
-        const includeWorldInfo = parseBoolArg(args?.worldinfo, true);
+        const includePersona = parseBoolArg(args?.persona, moduleSettings.includePersona !== false);
+        const includeWorldInfo = parseBoolArg(args?.worldinfo, moduleSettings.includeWorldInfo !== false);
         const rawMessageId = args?.messageid;
         const messageId = (rawMessageId !== undefined && rawMessageId !== null && rawMessageId !== '') ? Number(rawMessageId) : null;
+
+        let includeCharacter = moduleSettings.includeCharacter !== false;
+        let targetCard = null;
+
+        if (rawCard !== undefined && rawCard !== null && rawCard !== '') {
+            const parsedBool = parseBoolArg(rawCard, null);
+            if (parsedBool === false) {
+                includeCharacter = false;
+                targetCard = null;
+            } else if (parsedBool === true) {
+                includeCharacter = true;
+                targetCard = null;
+            } else {
+                includeCharacter = true;
+                targetCard = String(rawCard).trim();
+            }
+        }
 
         toastr.info('Generating scene image...');
 
         try {
             const context = getContext();
             console.debug('[scene-painter] drawscene: building image prompt...');
-            let finalPrompt = await buildImagePrompt(userInstruction, targetCard, 'gencustom', { includePersona, includeWorldInfo, messageId });
+            let finalPrompt = await buildImagePrompt(userInstruction, targetCard, 'gencustom', {
+                includePersona,
+                includeWorldInfo,
+                includeCharacter,
+                messageId
+            });
             console.debug('[scene-painter] drawscene: prompt built, showing edit popup:', finalPrompt);
 
             if (isEditPromptEnabled()) {
@@ -1335,5 +1435,5 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         }
         return '';
     },
-    helpString: 'Generates a scene image in chat using /drawscene [card="Card Name"] [width=(sd default)] [height=(sd default)] [negative="..."] [persona=true|false] [worldinfo=true|false] [messageid=x] [optional direction]. messageid generates from message x (and prior context) instead of the most recent message. Returns the generated image path via {{pipe}}, so it can be chained, e.g. /drawscene | /something-else {{pipe}}.',
+    helpString: 'Generates a scene image in chat using /drawscene [card="Card Name"|true|false] [width=(sd default)] [height=(sd default)] [negative="..."] [persona=true|false] [worldinfo=true|false] [messageid=x] [optional direction]. messageid generates from message x (and prior context) instead of the most recent message. Returns the generated image path via {{pipe}}, so it can be chained, e.g. /drawscene | /something-else {{pipe}}.',
 }));
