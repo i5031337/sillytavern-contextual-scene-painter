@@ -9,7 +9,6 @@ import { callGenericPopup, POPUP_TYPE } from '/scripts/popup.js';
 // EXTENSION SETTINGS & UI
 // ==========================================
 let moduleSettings = {};
-let refreshPresetDropdown = null;
 let refreshConnectionProfilesDropdown = null;
 
 // Background-focused prompts (/drawbg or /genbg) -- natural-language style (advanced text-encoder models)
@@ -59,7 +58,8 @@ function initExtensionSettings() {
             gencustom: defaultCommandSettings('gencustom', DEFAULT_PROMPT_STYLE),
             forceEdit: true,
             connectionProfile: '',
-            presetName: '',
+            genMaxResponse: 0,
+            genTemperature: null,
             promptStyle: DEFAULT_PROMPT_STYLE,
             disableFreeExtend: true,
             historyTokenLimit: DEFAULT_HISTORY_TOKEN_LIMIT,
@@ -70,7 +70,11 @@ function initExtensionSettings() {
     }
     moduleSettings = extension_settings.customBgGen;
 
-    // Migrate old settings
+    // Clean up legacy settings keys
+    if (moduleSettings.presetName !== undefined) delete moduleSettings.presetName;
+    if (moduleSettings.genMaxContext !== undefined) delete moduleSettings.genMaxContext;
+
+    // Migrate old prompt settings
     if (typeof moduleSettings.systemPrompt === 'string' || typeof moduleSettings.promptInstruction === 'string') {
         const migratedGenbg = {
             systemPrompt: moduleSettings.systemPrompt || DEFAULT_GENBG_SYSTEM_PROMPT,
@@ -94,7 +98,12 @@ function initExtensionSettings() {
     if (!moduleSettings.genbg) moduleSettings.genbg = defaultCommandSettings('genbg');
     if (!moduleSettings.gencustom) moduleSettings.gencustom = defaultCommandSettings('gencustom');
     if (typeof moduleSettings.connectionProfile !== 'string') moduleSettings.connectionProfile = '';
-    if (typeof moduleSettings.presetName !== 'string') moduleSettings.presetName = '';
+    
+    if (!Number.isFinite(Number(moduleSettings.genMaxResponse))) moduleSettings.genMaxResponse = 0;
+    if (moduleSettings.genTemperature !== null && !Number.isFinite(Number(moduleSettings.genTemperature))) {
+        moduleSettings.genTemperature = null;
+    }
+
     if (typeof moduleSettings.disableFreeExtend !== 'boolean') moduleSettings.disableFreeExtend = true;
     if (!Number.isFinite(Number(moduleSettings.historyTokenLimit)) || Number(moduleSettings.historyTokenLimit) <= 0) {
         moduleSettings.historyTokenLimit = DEFAULT_HISTORY_TOKEN_LIMIT;
@@ -106,7 +115,7 @@ function initExtensionSettings() {
     if (!Array.isArray(moduleSettings.gencustomPresets)) moduleSettings.gencustomPresets = [];
 
     // 2. Inject UI
-        const settingsHtml = `
+    const settingsHtml = `
         <div id="custom_bg_gen_container" class="extension_container">
             <div id="custom_bg_gen_settings">
                 <div class="inline-drawer">
@@ -166,22 +175,27 @@ function initExtensionSettings() {
 
                         <hr>
 
-                        <label title="Maximum number of tokens of recent chat history to feed into prompt generation. Independent of active character context limits.">Chat History Token Limit (ceiling within the total budget below)</label>
+                        <label title="Maximum number of tokens of recent chat history to feed into prompt generation. Independent of active character context limits.">Chat History Token Limit (ceiling within total prompt budget)</label>
                         <input type="number" id="custom_bg_history_token_limit" class="text_pole" min="1" step="1" style="width:100%; margin-bottom:10px;" />
 
-                        <label title="Target ceiling for the entire assembled prompt (system prompt + character/persona/lore/instructions + chat history), NOT counting the model's response. Chat history is trimmed first to fit whatever room is left after the other pieces; if lore/persona/character content alone exceeds this on its own, you'll get a console warning and toast rather than a silent truncation of that content.">Total Prompt Token Budget</label>
+                        <label title="Target token ceiling for the input prompt context (system prompt + character/persona/lore/instructions + chat history). The max context length sent to API backends (Kobold, AI Horde, etc.) will automatically be calculated as (Prompt Context + Max Response Tokens).">Total Prompt Token Budget (Input Context)</label>
                         <input type="number" id="custom_bg_total_context_token_limit" class="text_pole" min="1" step="1" style="width:100%; margin-bottom:10px;" />
+
+                        <hr>
+
+                        <h4 style="margin-bottom: 4px;">Prompt LLM Request Overrides</h4>
+
+                        <label title="Overrides maximum output tokens (max_tokens / responseLength) generated for the prompt text. Set to 0 or leave blank to use backend default.">Max API Response Tokens (max_tokens)</label>
+                        <input type="number" id="custom_bg_gen_max_response" class="text_pole" min="0" step="1" placeholder="300 (0 = backend default)" style="width:100%; margin-bottom:10px;" />
+
+                        <label title="Overrides sampling temperature for prompt generation (e.g. 0.7). Leave blank to use backend default.">API Temperature (optional)</label>
+                        <input type="number" id="custom_bg_gen_temperature" class="text_pole" min="0" max="2" step="0.05" placeholder="(use backend default)" style="width:100%; margin-bottom:10px;" />
 
                         <hr>
 
                         <label title="Connection profile to switch to during prompt generation.">Connection Profile for Prompt LLM (optional)</label>
                         <select id="custom_bg_connection_profile" class="text_pole" style="width:100%; margin-bottom:10px;">
                             <option value="">(None - Use currently active API)</option>
-                        </select>
-
-                        <label title="SillyTavern text completion preset to switch to during prompt generation. Lets you control lore/persona/character inclusion, samplers, and input/output token limits independently of your main text preset. Not compatible with Chat Completions.">Text Completion Preset for Prompt LLM (optional)</label>
-                        <select id="custom_bg_preset_name" class="text_pole" style="width:100%; margin-bottom:10px;">
-                            <option value="">(None - Use currently active preset)</option>
                         </select>
 
                         <hr>
@@ -210,6 +224,10 @@ function initExtensionSettings() {
     $('#custom_bg_gencustom_prompt_instruction').val(moduleSettings.gencustom.promptInstruction);
     $('#custom_bg_history_token_limit').val(moduleSettings.historyTokenLimit);
     $('#custom_bg_total_context_token_limit').val(moduleSettings.totalContextTokenLimit);
+    
+    $('#custom_bg_gen_max_response').val(moduleSettings.genMaxResponse || '');
+    $('#custom_bg_gen_temperature').val(moduleSettings.genTemperature !== null && moduleSettings.genTemperature !== undefined ? moduleSettings.genTemperature : '');
+
     $('#custom_bg_force_edit').prop('checked', moduleSettings.forceEdit);
     $('#custom_bg_prompt_style').val(moduleSettings.promptStyle || DEFAULT_PROMPT_STYLE);
     $('#custom_bg_disable_free_extend').prop('checked', moduleSettings.disableFreeExtend !== false);
@@ -254,6 +272,23 @@ function initExtensionSettings() {
         saveSettings();
     });
 
+    $('#custom_bg_gen_max_response').on('input', function() {
+        const parsed = parseInt($(this).val(), 10);
+        moduleSettings.genMaxResponse = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+        saveSettings();
+    });
+
+    $('#custom_bg_gen_temperature').on('input', function() {
+        const val = $(this).val().trim();
+        if (val === '') {
+            moduleSettings.genTemperature = null;
+        } else {
+            const parsed = parseFloat(val);
+            moduleSettings.genTemperature = Number.isFinite(parsed) ? parsed : null;
+        }
+        saveSettings();
+    });
+
     $('#custom_bg_force_edit').on('change', function() {
         moduleSettings.forceEdit = $(this).is(':checked');
         saveSettings();
@@ -261,11 +296,6 @@ function initExtensionSettings() {
 
     $('#custom_bg_connection_profile').on('change', function() {
         moduleSettings.connectionProfile = $(this).val();
-        saveSettings();
-    });
-
-    $('#custom_bg_preset_name').on('change', function() {
-        moduleSettings.presetName = $(this).val();
         saveSettings();
     });
 
@@ -292,64 +322,6 @@ function initExtensionSettings() {
         $('#custom_bg_gencustom_prompt_instruction').val(def.promptInstruction).trigger('input');
         toastr.success('Scene prompts reset to style default.');
     });
-
-    refreshPresetDropdown = async function populatePresetNameDropdown() {
-        const dropdown = document.getElementById('custom_bg_preset_name');
-        if (!dropdown) return;
-
-        const currentValue = moduleSettings.presetName || '';
-        const nameSet = new Set();
-
-        try {
-            const presetManager = typeof context.getPresetManager === 'function' ? context.getPresetManager() : null;
-            const list = presetManager?.getPresetList ? presetManager.getPresetList() : null;
-            if (Array.isArray(list)) {
-                list.forEach(name => { if (typeof name === 'string' && name) nameSet.add(name); });
-            } else if (list && typeof list === 'object') {
-                const names = list.preset_names ?? list.presets ?? list.names;
-                if (Array.isArray(names)) {
-                    names.forEach(name => { if (typeof name === 'string' && name) nameSet.add(name); });
-                } else if (names && typeof names === 'object') {
-                    Object.keys(names).forEach(name => nameSet.add(name));
-                }
-            }
-        } catch (e) {
-            console.warn('[scene-painter] Could not read preset list from PresetManager:', e);
-        }
-
-        if (nameSet.size === 0) {
-            const domSelects = document.querySelectorAll('select[id^="settings_preset"]');
-            domSelects.forEach(select => {
-                Array.from(select.options).forEach(opt => {
-                    if (opt.value && opt.textContent?.trim()) nameSet.add(opt.textContent.trim());
-                });
-            });
-        }
-
-        dropdown.innerHTML = '<option value="">(None - Use currently active preset)</option>';
-        const sorted = [...nameSet].sort((a, b) => a.localeCompare(b));
-        sorted.forEach(name => {
-            const option = document.createElement('option');
-            option.value = name;
-            option.textContent = name;
-            dropdown.appendChild(option);
-        });
-
-        if (currentValue) {
-            if (sorted.includes(currentValue)) {
-                dropdown.value = currentValue;
-            } else {
-                const missingOption = document.createElement('option');
-                missingOption.value = currentValue;
-                missingOption.textContent = currentValue + ' (Missing/Unknown)';
-                dropdown.appendChild(missingOption);
-                dropdown.value = currentValue;
-            }
-        } else {
-            dropdown.value = '';
-        }
-    };
-    refreshPresetDropdown();
 
     refreshConnectionProfilesDropdown = async function populateConnectionProfilesDropdown() {
         const dropdown = document.getElementById('custom_bg_connection_profile');
@@ -524,7 +496,6 @@ if (document.readyState === 'complete' || document.readyState === 'interactive')
 if (eventSource && event_types?.APP_READY) {
     eventSource.on(event_types.APP_READY, () => {
         mountExtensionUI();
-        refreshPresetDropdown?.();
         refreshConnectionProfilesDropdown?.();
     });
 }
@@ -639,7 +610,7 @@ function cleanGeneratedPrompt(rawText) {
 function sanitizePromptForSlashCommand(promptText) {
     if (!promptText) return '';
     return promptText
-        .replace(/\{\{/g, '{ {')  // Break macro syntax so LLM output can't trigger ST macros (e.g. {{random}}, {{getvar}})
+        .replace(/\{\{/g, '{ {')  // Break macro syntax so LLM output can't trigger ST macros
         .replace(/\}\}/g, '} }')
         .replace(/\|/g, ',')      // Prevent pipe command chaining
         .replace(/\r?\n+/g, ' ')  // Collapse linebreaks
@@ -714,58 +685,266 @@ async function readActiveProfileName(context) {
     return (result?.pipe ?? result?.value ?? result ?? '').toString().trim();
 }
 
-async function withOptionalPreset(context, task) {
-    const presetName = (moduleSettings.presetName || '').trim();
-    if (!presetName) return await task();
+/**
+ * Temporary wrapper that directly overrides SillyTavern's active textgen/openai
+ * settings objects via getContext() for prompt generation, then restores defaults.
+ */
 
-    const presetManager = typeof context.getPresetManager === 'function' ? context.getPresetManager() : null;
-    if (!presetManager || typeof presetManager.selectPreset !== 'function') {
-        console.warn('[scene-painter] PresetManager unavailable -- proceeding without preset switch.');
-        return await task();
-    }
 
-    let previousPreset = null;
+async function collectSettingsTargets(context) {
+    const targets = [];
+    const addTarget = (obj) => {
+        if (obj && typeof obj === 'object' && !targets.includes(obj)) {
+            targets.push(obj);
+        }
+    };
+
+    // 1. PresetManager
     try {
-        previousPreset = presetManager.getSelectedPresetName ? presetManager.getSelectedPresetName() : null;
-    } catch (err) {
-        console.warn('[scene-painter] Could not read active preset -- will not attempt to restore afterward:', err);
-    }
+        const pm = context?.getPresetManager?.() || (window.SillyTavern?.getContext?.()?.getPresetManager?.());
+        if (pm) {
+            addTarget(pm.getPreset?.());
+            addTarget(pm.getSelectedPreset?.());
+            if (pm.presets && pm.selectedPreset) {
+                addTarget(pm.presets[pm.selectedPreset]);
+            }
+        }
+    } catch (e) { /* ignore */ }
 
-    if (previousPreset !== null && previousPreset === presetName) {
-        return await task();
-    }
+    // 2. Direct live settings references on Context
+    addTarget(context?.textCompletionSettings);
+    addTarget(context?.chatCompletionSettings);
+    addTarget(context?.powerUserSettings);
+    addTarget(context?.kaiSettings);
+    addTarget(context?.kai_settings);
 
-    let switched = false;
+    // 3. Window Globals
+    addTarget(window.kai_settings);
+    addTarget(window.kai_presets);
+    addTarget(window.horde_settings);
+    addTarget(window.kobold_settings);
+    addTarget(window.power_user);
+    addTarget(window.selected_settings);
+    addTarget(window.textgenerationwebui_settings);
+    addTarget(window.textgen_settings);
+    addTarget(window.openai_settings);
+
+    // 4. Dynamic Module Imports
     try {
-        presetManager.selectPreset(presetName);
-        switched = true;
-        console.debug(`[scene-painter] Switched preset to "${presetName}", generating...`);
-    } catch (err) {
-        console.warn(`[scene-painter] Failed to switch to preset "${presetName}" -- proceeding without switching:`, err);
-        toastr.warning(`Could not switch to preset "${presetName}" (see console) -- using your currently active preset instead.`);
-    }
+        const kaiMod = await import('/scripts/kai-settings.js');
+        const kaiObj = kaiMod.kai_settings || kaiMod.default;
+        if (kaiObj) addTarget(kaiObj);
+    } catch (e) { /* ignore */ }
 
     try {
-        return await task();
-    } finally {
-        if (switched && previousPreset !== null && previousPreset !== undefined && previousPreset !== presetName) {
-            try {
-                presetManager.selectPreset(previousPreset);
-                console.debug(`[scene-painter] Preset restored to "${previousPreset}".`);
-            } catch (err) {
-                console.warn(`[scene-painter] Failed to restore preset "${previousPreset}":`, err);
+        const textgenMod = await import('/scripts/textgen-settings.js');
+        const textgenObj = textgenMod.textgenerationwebui_settings || textgenMod.textgen_settings || textgenMod.default;
+        if (textgenObj) addTarget(textgenObj);
+    } catch (e) { /* ignore */ }
+
+    try {
+        const oaiMod = await import('/scripts/openai.js');
+        const oaiObj = oaiMod.openai_settings || oaiMod.default;
+        if (oaiObj) addTarget(oaiObj);
+    } catch (e) { /* ignore */ }
+
+    // 5. Inspect nested presets & Chat Completion preset references
+    const parentObjects = [...targets];
+    for (const parent of parentObjects) {
+        if (!parent || typeof parent !== 'object') continue;
+
+        if (parent.settings && typeof parent.settings === 'object') addTarget(parent.settings);
+        if (parent.preset_settings && typeof parent.preset_settings === 'object') addTarget(parent.preset_settings);
+        if (parent.preset_settings_openai && typeof parent.preset_settings_openai === 'object') addTarget(parent.preset_settings_openai);
+        if (parent.presets && typeof parent.presets === 'object') {
+            addTarget(parent.presets);
+            Object.values(parent.presets).forEach(p => addTarget(p));
+        }
+        if (parent.params && typeof parent.params === 'object') addTarget(parent.params);
+
+        const presetKeys = ['preset_settings_openai', 'preset_settings', 'preset', 'selected_preset', 'active_preset'];
+        for (const pKey of presetKeys) {
+            const presetVal = parent[pKey];
+            if (presetVal !== undefined && parent[presetVal] && typeof parent[presetVal] === 'object') {
+                addTarget(parent[presetVal]);
+            }
+            if (parent.presets && presetVal !== undefined && parent.presets[presetVal] && typeof parent.presets[presetVal] === 'object') {
+                addTarget(parent.presets[presetVal]);
             }
         }
     }
+
+    return targets;
+}
+
+async function withTemporarySettingsOverride({ maxContext, temperature }, fn) {
+    const context = getContext();
+    const targets = await collectSettingsTargets(context);
+
+    // Backup global window.max_context and DOM slider elements
+    const originalWindowMaxContext = window.max_context;
+    
+    // Text Completion Context Slider
+    const maxContextEl = $('#max_context, #max_context_slider, [name="max_context"]');
+    const originalDomMaxContext = (maxContextEl.length && maxContextEl.val()) ? maxContextEl.val() : null;
+
+    // Chat Completion Temperature Slider
+    const tempOpenAiEl = $('#temp_openai, [name="temp_openai"]');
+    const originalDomTempOpenAi = (tempOpenAiEl.length && tempOpenAiEl.val()) ? tempOpenAiEl.val() : null;
+
+    // Snapshot target objects
+    const backups = targets.map(obj => ({
+        obj,
+        max_context_length: obj.max_context_length,
+        truncation_length: obj.truncation_length,
+        num_ctx: obj.num_ctx,
+        max_context: obj.max_context,
+        temp: obj.temp,
+        temperature: obj.temperature,
+        temp_openai: obj.temp_openai,
+        temperature_openai: obj.temperature_openai,
+    }));
+
+    try {
+        if (maxContext !== undefined && maxContext !== null && maxContext > 0) {
+            window.max_context = maxContext;
+            if (context) {
+                context.max_context = maxContext;
+                context.maxContext = maxContext;
+            }
+
+            if (maxContextEl.length) {
+                maxContextEl.val(maxContext).trigger('input').trigger('change');
+            }
+        }
+
+        if (temperature !== undefined && temperature !== null) {
+            if (tempOpenAiEl.length) {
+                tempOpenAiEl.val(temperature).trigger('input').trigger('change');
+            }
+        }
+
+        targets.forEach(obj => {
+            if (maxContext !== undefined && maxContext !== null && maxContext > 0) {
+                obj.max_context_length = maxContext;
+                obj.truncation_length = maxContext;
+                obj.num_ctx = maxContext;
+                obj.max_context = maxContext;
+            }
+
+            if (temperature !== undefined && temperature !== null) {
+                obj.temp = temperature;
+                obj.temperature = temperature;
+                obj.temp_openai = temperature;
+                obj.temperature_openai = temperature;
+            }
+        });
+
+        console.debug('[scene-painter] Applied temporary parameter overrides:', { maxContext, temperature, targetsCount: targets.length });
+
+        return await fn();
+    } finally {
+        // Restore globals
+        if (originalWindowMaxContext !== undefined) {
+            window.max_context = originalWindowMaxContext;
+        }
+
+        // Restore DOM sliders
+        if (maxContextEl.length && originalDomMaxContext !== null) {
+            maxContextEl.val(originalDomMaxContext).trigger('input').trigger('change');
+        }
+
+        if (tempOpenAiEl.length && originalDomTempOpenAi !== null) {
+            tempOpenAiEl.val(originalDomTempOpenAi).trigger('input').trigger('change');
+        }
+
+        // Restore target objects
+        backups.forEach(({ obj, max_context_length, truncation_length, num_ctx, max_context, temp, temperature, temp_openai, temperature_openai }) => {
+            if (max_context_length !== undefined) obj.max_context_length = max_context_length;
+            if (truncation_length !== undefined) obj.truncation_length = truncation_length;
+            if (num_ctx !== undefined) obj.num_ctx = num_ctx;
+            if (max_context !== undefined) obj.max_context = max_context;
+
+            if (temp !== undefined) obj.temp = temp;
+            if (temperature !== undefined) obj.temperature = temperature;
+            if (temp_openai !== undefined) obj.temp_openai = temp_openai;
+            if (temperature_openai !== undefined) obj.temperature_openai = temperature_openai;
+        });
+
+        console.debug('[scene-painter] Restored original preset parameters.');
+    }
+}
+
+async function executeRawGeneration(context, fullRawPrompt) {
+    const responseLength = Number(moduleSettings.genMaxResponse) > 0 ? Number(moduleSettings.genMaxResponse) : null;
+    const promptBudget = Number(moduleSettings.totalContextTokenLimit) > 0 ? Number(moduleSettings.totalContextTokenLimit) : DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT;
+    
+    // Calculate API context size = Prompt Budget + Response Tokens
+    const apiContextSize = promptBudget + (responseLength || 300);
+
+    const tempOverride = (moduleSettings.genTemperature !== null && moduleSettings.genTemperature !== undefined && moduleSettings.genTemperature !== '')
+        ? Number(moduleSettings.genTemperature)
+        : null;
+    const validTemp = Number.isFinite(tempOverride) ? tempOverride : null;
+
+    const customSettings = {
+        max_context_length: apiContextSize,
+        truncation_length: apiContextSize,
+        num_ctx: apiContextSize,
+        max_context: apiContextSize,
+        max_length: responseLength || 300,
+    };
+
+    if (validTemp !== null) {
+        customSettings.temperature = validTemp;
+        customSettings.temp = validTemp;
+    }
+
+    const generateOptions = {
+        prompt: fullRawPrompt,
+        api: null,
+        instructOverride: false,
+        quietToLoud: false,
+        systemPrompt: '',
+        responseLength: responseLength,
+        max_context_length: apiContextSize,
+        truncation_length: apiContextSize,
+        num_ctx: apiContextSize,
+        max_context: apiContextSize,
+        temperature: validTemp,
+        temp: validTemp,
+        custom_settings: customSettings,
+        custom_generate_settings: customSettings,
+        gen_settings: customSettings
+    };
+
+    return await withTemporarySettingsOverride({
+        maxContext: apiContextSize,
+        temperature: validTemp
+    }, async () => {
+        let raw;
+        try {
+            raw = await context.generateRaw(generateOptions);
+        } catch (err) {
+            // Fallback for older positional ST signature
+            raw = await context.generateRaw(
+                fullRawPrompt,
+                null,
+                false,
+                false,
+                '',
+                responseLength,
+                customSettings
+            );
+        }
+        return cleanGeneratedPrompt(raw);
+    });
 }
 
 async function generateWithOptionalProfile(context, fullRawPrompt) {
     const profileName = (moduleSettings.connectionProfile || '').trim();
     if (!profileName) {
-        return await withOptionalPreset(context, async () => {
-            const raw = await context.generateRaw(fullRawPrompt);
-            return cleanGeneratedPrompt(raw);
-        });
+        return await executeRawGeneration(context, fullRawPrompt);
     }
 
     const runTask = async () => {
@@ -780,9 +959,9 @@ async function generateWithOptionalProfile(context, fullRawPrompt) {
         try {
             await context.executeSlashCommands(`/profile ${quoteSlashArg(profileName)}`);
             console.debug(`[scene-painter] Switched profile to "${profileName}", generating...`);
-            const raw = await withOptionalPreset(context, () => context.generateRaw(fullRawPrompt));
+            const result = await executeRawGeneration(context, fullRawPrompt);
             console.debug(`[scene-painter] Generation via "${profileName}" complete.`);
-            return cleanGeneratedPrompt(raw);
+            return result;
         } finally {
             if (previousProfile !== null && previousProfile.toLowerCase() !== profileName.toLowerCase()) {
                 const restoreTarget = previousProfile === '' ? 'None' : previousProfile;
@@ -815,6 +994,14 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
     const context = getContext();
     const defaults = defaultCommandSettings(commandKey);
     const commandSettings = moduleSettings[commandKey] || defaults;
+
+    // Calculate budget ceilings early so World Info can use the context setting
+    const totalBudget = Number(moduleSettings.totalContextTokenLimit) > 0
+        ? Number(moduleSettings.totalContextTokenLimit)
+        : DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT;
+    const historyCeiling = Number(moduleSettings.historyTokenLimit) > 0
+        ? Number(moduleSettings.historyTokenLimit)
+        : DEFAULT_HISTORY_TOKEN_LIMIT;
     
     const promptInstruction = commandSettings.promptInstruction || defaults.promptInstruction;
     let systemPrompt = commandSettings.systemPrompt || defaults.systemPrompt;
@@ -835,13 +1022,19 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
     let wiText = '';
     if (includeWorldInfo) {
         try {
-            const wiModule = await import('/scripts/world-info.js');
-            if (typeof wiModule.getWorldInfoPrompt === 'function') {
+            let getWorldInfoPrompt = window.getWorldInfoPrompt;
+            if (typeof getWorldInfoPrompt !== 'function') {
+                const wiModule = await import('/scripts/world-info.js');
+                getWorldInfoPrompt = wiModule?.getWorldInfoPrompt || wiModule?.default;
+            }
+
+            if (typeof getWorldInfoPrompt === 'function') {
                 const chatStrings = chatLog
                     .filter(m => m && !m.is_system && !m.is_hidden)
                     .map(m => `${m.name}: ${m.mes}`);
                     
-                const wiResult = await wiModule.getWorldInfoPrompt(chatStrings, 2000, true);
+                // Use totalBudget instead of hardcoded 2000
+                const wiResult = await getWorldInfoPrompt(chatStrings, totalBudget, true);
                 if (typeof wiResult === 'string') {
                     wiText = wiResult;
                 } else if (wiResult && typeof wiResult === 'object') {
@@ -909,13 +1102,6 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
         fixedPromptTail += `<instruction>\n${effectiveInstruction}\n</instruction>`;
     }
 
-    const totalBudget = Number(moduleSettings.totalContextTokenLimit) > 0
-        ? Number(moduleSettings.totalContextTokenLimit)
-        : DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT;
-    const historyCeiling = Number(moduleSettings.historyTokenLimit) > 0
-        ? Number(moduleSettings.historyTokenLimit)
-        : DEFAULT_HISTORY_TOKEN_LIMIT;
-
     const fixedTokens = await countTokens(systemPrompt) + await countTokens(fixedPromptHead) + await countTokens(fixedPromptTail)
         + await countTokens('<recent_scene>\n\n</recent_scene>\n\n');
     const availableForHistory = Math.max(0, totalBudget - fixedTokens);
@@ -966,8 +1152,6 @@ async function uploadAndSetBackground(imageUrl) {
     }
 }
 
-// Dispatches a fully-built /sd command. If the setting to prevent free mode prompt extension is active,
-// passes extend=false to the /sd command so this extension's generated prompt is not re-elaborated by the LLM.
 async function dispatchToSD(context, sdCommand) {
     if (moduleSettings.disableFreeExtend !== false && !/\bextend=/.test(sdCommand)) {
         sdCommand = sdCommand.replace(/^\/sd\b/, '/sd extend=false');
