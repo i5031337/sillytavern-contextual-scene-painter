@@ -14,7 +14,7 @@
 - **Two Specialized Modes**:
   - **`/drawbg` (Background Mode)**: Focuses on environment design, cinematic framing, weather, lighting, and scenery. Automatically uploads the generated image and applies it to your active chat background at 1080p resolution.
   - **`/drawscene` (Inline Scene Mode)**: Focuses on narrative action, character dynamic poses, expressions, dynamic visual elements, and focal compositions, outputting images directly into your chat stream.
-- **Dedicated LLM Connection Profiles**: Save tokens on your primary story model by routing image prompt generation to a secondary API/connection profile (e.g., a fast, low-cost model like Gemini Flash, Haiku, or Llama 3 8B).
+- **Dedicated LLM Connection Profiles**: Save tokens on your primary story model by routing image prompt generation to a secondary API/connection profile (e.g., a fast, low-cost model. I've found Gemma4 E4B to be effective).
 - **Independent Context Token Limit**: Set a strict token cap on how much recent chat history is fed into the image prompt generator.
 - **Interactive Prompt Editing**: Option to force a review popup modal before generating, letting you fine-tune or edit the LLM's prompt before image generation.
 - **Preset Management**: Save, load, and manage custom prompt presets for both background and scene generation tasks.
@@ -112,12 +112,19 @@ Open SillyTavern's **Extensions** tab and expand **Contextual Scene Painter** to
 
 - **Background & Scene Presets**: Quickly save, load, or delete custom system prompts and prompt generation instructions.
 - **System Prompt Override**: Customize the system role prompt fed to the prompt generation LLM.
-- **Prompt Instruction**: Fine-tune instructions regarding formatting, style emphasis, tag styles, or negative exclusions.
+- **Prompt Instruction**: Fine-tune instructions regarding formatting, style emphasis, tag styles, or negative exclusions. Defaults provided for both new models that understand natural language and SD1.5/SDXL based which require Danbooru tags.
+- **Prompt Context Defaults**: Whether the information in your Persona, active Character, and triggered Lorebook entries will be included with chat history.
 - **Chat History Token Limit**: Set the maximum token length of recent chat context fed into prompt generation (default: `2048` tokens).
+- **Total Prompt Token Budget**: Chat history plus any character, persona, lore included will not exceed this value. Set to avoid exceeding max_context_length when using Text Completion or AI Horde.
+- **Max API Response Tokens**: Self-explanatory. Passed to LLM.
+- **Temperature**: Maybe you want high-temp crazy narration but a lower value here for strict analytical image prompts.
+- **Connection Profile for Prompt LLM**: Pick an optional connection profile (e.g., local small LLM or fast cloud model) to generate the prompt text. The extension switches to this profile during prompt generation and automatically restores your previous active profile afterward. Supports Chat Completion, Text Completion, and AI Horde.
 - **Always Show Prompt Edit Popup**: Check this box to force an edit modal prior to image rendering, allowing you to manually refine prompt tags.
-- **Connection Profile for Prompt LLM**: Pick an optional connection profile (e.g., local small LLM or fast cloud model) to generate the prompt text. The extension switches to this profile during prompt generation and automatically restores your previous active profile afterward.
-<img width="570" height="955" alt="Screenshot 2026-07-30 184421" src="https://github.com/user-attachments/assets/3a98c0b6-1746-400b-bacb-3b5db29de3ab" />
-<img width="567" height="230" alt="Screenshot 2026-07-30 184442" src="https://github.com/user-attachments/assets/f059f967-3241-4a42-8ac9-f381560d5c45" />
+- **Prevent "Extend Free Mode Prompts"**: Override global /sd setting.
+  <img width="570" height="789" alt="Screenshot 2026-08-05 184611" src="https://github.com/user-attachments/assets/b1e5dfcc-b088-4b26-bbe2-82370f7f7807" />
+  <img width="568" height="590" alt="Screenshot 2026-08-05 184634" src="https://github.com/user-attachments/assets/c2559afb-bc80-4720-80c7-4ca98ad233ef" />
+
+
 
 
 ---
