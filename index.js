@@ -9,27 +9,41 @@ import { callGenericPopup, POPUP_TYPE } from '/scripts/popup.js';
 // EXTENSION SETTINGS & UI
 // ==========================================
 let moduleSettings = {};
+let refreshPresetDropdown = null;
+let refreshConnectionProfilesDropdown = null;
 
-// Background-focused prompts (/drawbg or /genbg)
+// Background-focused prompts (/drawbg or /genbg) -- natural-language style (advanced text-encoder models)
 const DEFAULT_GENBG_SYSTEM_PROMPT = 'You are an expert AI image prompt engineer specializing in cinematic environment art, mecha, architecture, landscape design, and visual background scene building for storytelling.';
 const DEFAULT_GENBG_PROMPT_INSTRUCTION = 'Synthesize the provided location, lore, and recent story context into a detailed, immersive image prompt focused on the environment. Describe the setting, atmosphere, lighting, camera perspective/framing, weather, textures, and mood. Exclude speech bubbles, text overlays, and main character portrait details. Output ONLY the raw image prompt text with no conversational intro, quotes, markdown wrappers, or explanation.';
 
-// Scene/Character-focused prompts (/drawscene or /gencustom)
+// Scene/Character-focused prompts (/drawscene or /gencustom) -- natural-language style
 const DEFAULT_GENCUSTOM_SYSTEM_PROMPT = 'You are an expert AI image prompt engineer specializing in visual narrative illustration, character design, cinematic framing, and story scene composition.';
 const DEFAULT_GENCUSTOM_PROMPT_INSTRUCTION = 'Synthesize the provided character information, scene context, and recent actions into a vivid image prompt capturing this exact narrative moment. Describe the subject(s), dynamic poses, facial expressions, attire, scene framing, focal elements, lighting, and surrounding environment. Output ONLY the raw image prompt text with no conversational intro, quotes, markdown wrappers, or explanation.';
 
-const DEFAULT_HISTORY_TOKEN_LIMIT = 2048;
+// Background-focused prompts -- Danbooru/booru tag style (SDXL and similar tag-trained models)
+const DEFAULT_GENBG_SYSTEM_PROMPT_TAGS = 'You are an expert Stable Diffusion prompt engineer who writes Danbooru-style booru tag lists for environment, architecture, and background scene art.';
+const DEFAULT_GENBG_PROMPT_INSTRUCTION_TAGS = 'Synthesize the provided location, lore, and recent story context into a comma-separated list of Danbooru-style booru tags describing the environment. Cover setting/location, time of day, lighting, weather, architecture or terrain, color palette, and camera framing (e.g. wide shot, from above, no humans). Do not include characters, speech bubbles, or text. Output ONLY the raw comma-separated tag list in lowercase, with no numbering, headers, markdown, or explanation.';
 
-function defaultCommandSettings(commandKey = 'genbg') {
+// Scene/Character-focused prompts -- Danbooru/booru tag style
+const DEFAULT_GENCUSTOM_SYSTEM_PROMPT_TAGS = 'You are an expert Stable Diffusion prompt engineer who writes Danbooru-style booru tag lists for character and narrative scene art.';
+const DEFAULT_GENCUSTOM_PROMPT_INSTRUCTION_TAGS = 'Synthesize the provided character information, scene context, and recent actions into a comma-separated list of Danbooru-style booru tags capturing this exact narrative moment. Cover subject count (e.g. 1girl, 1boy), pose/action, expression, clothing/attire, framing/shot type, setting, and lighting. Output ONLY the raw comma-separated tag list in lowercase, with no numbering, headers, markdown, or explanation.';
+
+const DEFAULT_HISTORY_TOKEN_LIMIT = 2048;
+const DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT = 8192;
+const DEFAULT_PROMPT_STYLE = 'natural'; // 'natural' | 'tags'
+
+function defaultCommandSettings(commandKey = 'genbg', promptStyle) {
+    const style = promptStyle || moduleSettings?.promptStyle || DEFAULT_PROMPT_STYLE;
+    const useTags = style === 'tags';
     if (commandKey === 'gencustom') {
         return {
-            systemPrompt: DEFAULT_GENCUSTOM_SYSTEM_PROMPT,
-            promptInstruction: DEFAULT_GENCUSTOM_PROMPT_INSTRUCTION,
+            systemPrompt: useTags ? DEFAULT_GENCUSTOM_SYSTEM_PROMPT_TAGS : DEFAULT_GENCUSTOM_SYSTEM_PROMPT,
+            promptInstruction: useTags ? DEFAULT_GENCUSTOM_PROMPT_INSTRUCTION_TAGS : DEFAULT_GENCUSTOM_PROMPT_INSTRUCTION,
         };
     }
     return {
-        systemPrompt: DEFAULT_GENBG_SYSTEM_PROMPT,
-        promptInstruction: DEFAULT_GENBG_PROMPT_INSTRUCTION,
+        systemPrompt: useTags ? DEFAULT_GENBG_SYSTEM_PROMPT_TAGS : DEFAULT_GENBG_SYSTEM_PROMPT,
+        promptInstruction: useTags ? DEFAULT_GENBG_PROMPT_INSTRUCTION_TAGS : DEFAULT_GENBG_PROMPT_INSTRUCTION,
     };
 }
 
@@ -41,11 +55,15 @@ function initExtensionSettings() {
     // 1. Initialize default settings
     if (!extension_settings.customBgGen) {
         extension_settings.customBgGen = {
-            genbg: defaultCommandSettings('genbg'),
-            gencustom: defaultCommandSettings('gencustom'),
+            genbg: defaultCommandSettings('genbg', DEFAULT_PROMPT_STYLE),
+            gencustom: defaultCommandSettings('gencustom', DEFAULT_PROMPT_STYLE),
             forceEdit: true,
             connectionProfile: '',
+            presetName: '',
+            promptStyle: DEFAULT_PROMPT_STYLE,
+            disableFreeExtend: true,
             historyTokenLimit: DEFAULT_HISTORY_TOKEN_LIMIT,
+            totalContextTokenLimit: DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT,
             genbgPresets: [],
             gencustomPresets: [],
         };
@@ -72,17 +90,23 @@ function initExtensionSettings() {
         moduleSettings.genbgPresets = [...moduleSettings.presets];
         delete moduleSettings.presets;
     }
+    if (typeof moduleSettings.promptStyle !== 'string') moduleSettings.promptStyle = DEFAULT_PROMPT_STYLE;
     if (!moduleSettings.genbg) moduleSettings.genbg = defaultCommandSettings('genbg');
     if (!moduleSettings.gencustom) moduleSettings.gencustom = defaultCommandSettings('gencustom');
     if (typeof moduleSettings.connectionProfile !== 'string') moduleSettings.connectionProfile = '';
+    if (typeof moduleSettings.presetName !== 'string') moduleSettings.presetName = '';
+    if (typeof moduleSettings.disableFreeExtend !== 'boolean') moduleSettings.disableFreeExtend = true;
     if (!Number.isFinite(Number(moduleSettings.historyTokenLimit)) || Number(moduleSettings.historyTokenLimit) <= 0) {
         moduleSettings.historyTokenLimit = DEFAULT_HISTORY_TOKEN_LIMIT;
+    }
+    if (!Number.isFinite(Number(moduleSettings.totalContextTokenLimit)) || Number(moduleSettings.totalContextTokenLimit) <= 0) {
+        moduleSettings.totalContextTokenLimit = DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT;
     }
     if (!Array.isArray(moduleSettings.genbgPresets)) moduleSettings.genbgPresets = [];
     if (!Array.isArray(moduleSettings.gencustomPresets)) moduleSettings.gencustomPresets = [];
 
     // 2. Inject UI
-    const settingsHtml = `
+        const settingsHtml = `
         <div id="custom_bg_gen_container" class="extension_container">
             <div id="custom_bg_gen_settings">
                 <div class="inline-drawer">
@@ -92,7 +116,7 @@ function initExtensionSettings() {
                     </div>
                     <div class="inline-drawer-content">
                         <!-- Background Presets -->
-                        <h4 style="margin-bottom: 4px;">Background Presets (/drawbg, /genbg)</h4>
+                        <h4 style="margin-bottom: 4px;">Background Presets (/drawbg)</h4>
                         <div style="display: flex; gap: 5px; margin-bottom: 10px; align-items: center;">
                             <select id="custom_bg_genbg_preset_select" class="text_pole" style="flex: 1;"></select>
                         </div>
@@ -102,10 +126,17 @@ function initExtensionSettings() {
                             <button id="custom_bg_genbg_preset_delete" class="menu_button fa-solid fa-trash" style="flex: 0 0 auto; color: red;" title="Delete selected preset"></button>
                         </div>
 
+                        <!-- Command Settings Fields -->
+                        <h4 style="margin-bottom: 4px;">Background Settings</h4>
+                        <label>System Prompt Override</label>
+                        <textarea id="custom_bg_genbg_system_prompt" class="text_pole" rows="2" style="width:100%; resize:vertical; margin-bottom:10px;"></textarea>
+                        <label>Prompt Instruction</label>
+                        <textarea id="custom_bg_genbg_prompt_instruction" class="text_pole" rows="4" style="width:100%; resize:vertical; margin-bottom:10px;"></textarea>
+
                         <hr>
 
                         <!-- Scene Presets -->
-                        <h4 style="margin-bottom: 4px;">Scene Presets (/drawscene, /gencustom)</h4>
+                        <h4 style="margin-bottom: 4px;">Scene Presets (/drawscene)</h4>
                         <div style="display: flex; gap: 5px; margin-bottom: 10px; align-items: center;">
                             <select id="custom_bg_gencustom_preset_select" class="text_pole" style="flex: 1;"></select>
                         </div>
@@ -115,27 +146,43 @@ function initExtensionSettings() {
                             <button id="custom_bg_gencustom_preset_delete" class="menu_button fa-solid fa-trash" style="flex: 0 0 auto; color: red;" title="Delete selected preset"></button>
                         </div>
 
-                        <hr>
-
-                        <!-- Command Settings Fields -->
-                        <h4 style="margin-bottom: 4px;">Background Settings</h4>
-                        <label>System Prompt Override</label>
-                        <textarea id="custom_bg_genbg_system_prompt" class="text_pole" rows="2" style="width:100%; resize:vertical; margin-bottom:10px;"></textarea>
-                        <label>Prompt Instruction</label>
-                        <textarea id="custom_bg_genbg_prompt_instruction" class="text_pole" rows="3" style="width:100%; resize:vertical; margin-bottom:10px;"></textarea>
-
-                        <hr>
-
                         <h4 style="margin-bottom: 4px;">Scene Settings</h4>
                         <label>System Prompt Override</label>
                         <textarea id="custom_bg_gencustom_system_prompt" class="text_pole" rows="2" style="width:100%; resize:vertical; margin-bottom:10px;"></textarea>
                         <label>Prompt Instruction</label>
-                        <textarea id="custom_bg_gencustom_prompt_instruction" class="text_pole" rows="3" style="width:100%; resize:vertical; margin-bottom:10px;"></textarea>
+                        <textarea id="custom_bg_gencustom_prompt_instruction" class="text_pole" rows="4" style="width:100%; resize:vertical; margin-bottom:10px;"></textarea>
 
                         <hr>
 
-                        <label title="Maximum number of tokens of recent chat history to feed into prompt generation. Independent of active character context limits.">Chat History Token Limit (Prompt Context)</label>
+                        <label title="Default prompt style used when loading the built-in 'Default' preset or resetting a command's prompts.">Default Prompt Style</label>
+                        <select id="custom_bg_prompt_style" class="text_pole" style="width:100%; margin-bottom:10px;">
+                            <option value="natural">Natural language (advanced text-encoder models)</option>
+                            <option value="tags">Danbooru tags (SDXL and similar tag-trained models)</option>
+                        </select>
+                        <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                            <button id="custom_bg_genbg_style_reset" class="menu_button" style="flex:1;" title="Overwrite Background prompts with the selected style's defaults">Reset Background to Style Default</button>
+                            <button id="custom_bg_gencustom_style_reset" class="menu_button" style="flex:1;" title="Overwrite Scene prompts with the selected style's defaults">Reset Scene to Style Default</button>
+                        </div>
+
+                        <hr>
+
+                        <label title="Maximum number of tokens of recent chat history to feed into prompt generation. Independent of active character context limits.">Chat History Token Limit (ceiling within the total budget below)</label>
                         <input type="number" id="custom_bg_history_token_limit" class="text_pole" min="1" step="1" style="width:100%; margin-bottom:10px;" />
+
+                        <label title="Target ceiling for the entire assembled prompt (system prompt + character/persona/lore/instructions + chat history), NOT counting the model's response. Chat history is trimmed first to fit whatever room is left after the other pieces; if lore/persona/character content alone exceeds this on its own, you'll get a console warning and toast rather than a silent truncation of that content.">Total Prompt Token Budget</label>
+                        <input type="number" id="custom_bg_total_context_token_limit" class="text_pole" min="1" step="1" style="width:100%; margin-bottom:10px;" />
+
+                        <hr>
+
+                        <label title="Connection profile to switch to during prompt generation.">Connection Profile for Prompt LLM (optional)</label>
+                        <select id="custom_bg_connection_profile" class="text_pole" style="width:100%; margin-bottom:10px;">
+                            <option value="">(None - Use currently active API)</option>
+                        </select>
+
+                        <label title="SillyTavern text completion preset to switch to during prompt generation. Lets you control lore/persona/character inclusion, samplers, and input/output token limits independently of your main text preset. Not compatible with Chat Completions.">Text Completion Preset for Prompt LLM (optional)</label>
+                        <select id="custom_bg_preset_name" class="text_pole" style="width:100%; margin-bottom:10px;">
+                            <option value="">(None - Use currently active preset)</option>
+                        </select>
 
                         <hr>
 
@@ -144,12 +191,10 @@ function initExtensionSettings() {
                             <span>Always Show Prompt Edit Popup</span>
                         </label>
 
-                        <hr>
-
-                        <label title="Connection profile to switch to during prompt generation.">Connection Profile for Prompt LLM (optional)</label>
-                        <select id="custom_bg_connection_profile" class="text_pole" style="width:100%; margin-bottom:10px;">
-                            <option value="">(None - Use currently active API)</option>
-                        </select>
+                        <label class="checkbox_label" title="Passes extend=false to the /sd command so this extension's own generated prompt is not re-elaborated by the LLM.">
+                            <input type="checkbox" id="custom_bg_disable_free_extend" />
+                            <span>Prevent &quot;Extend free mode prompts&quot; from re-processing generated prompts</span>
+                        </label>
                     </div>
                 </div>
             </div>
@@ -164,7 +209,10 @@ function initExtensionSettings() {
     $('#custom_bg_gencustom_system_prompt').val(moduleSettings.gencustom.systemPrompt);
     $('#custom_bg_gencustom_prompt_instruction').val(moduleSettings.gencustom.promptInstruction);
     $('#custom_bg_history_token_limit').val(moduleSettings.historyTokenLimit);
+    $('#custom_bg_total_context_token_limit').val(moduleSettings.totalContextTokenLimit);
     $('#custom_bg_force_edit').prop('checked', moduleSettings.forceEdit);
+    $('#custom_bg_prompt_style').val(moduleSettings.promptStyle || DEFAULT_PROMPT_STYLE);
+    $('#custom_bg_disable_free_extend').prop('checked', moduleSettings.disableFreeExtend !== false);
 
     // 4. Persistence bindings
     const saveSettings = () => {
@@ -200,6 +248,12 @@ function initExtensionSettings() {
         saveSettings();
     });
 
+    $('#custom_bg_total_context_token_limit').on('input', function() {
+        const parsed = parseInt($(this).val(), 10);
+        moduleSettings.totalContextTokenLimit = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT;
+        saveSettings();
+    });
+
     $('#custom_bg_force_edit').on('change', function() {
         moduleSettings.forceEdit = $(this).is(':checked');
         saveSettings();
@@ -210,7 +264,94 @@ function initExtensionSettings() {
         saveSettings();
     });
 
-    async function populateConnectionProfilesDropdown() {
+    $('#custom_bg_preset_name').on('change', function() {
+        moduleSettings.presetName = $(this).val();
+        saveSettings();
+    });
+
+    $('#custom_bg_prompt_style').on('change', function() {
+        moduleSettings.promptStyle = $(this).val();
+        saveSettings();
+    });
+
+    $('#custom_bg_disable_free_extend').on('change', function() {
+        moduleSettings.disableFreeExtend = $(this).is(':checked');
+        saveSettings();
+    });
+
+    $('#custom_bg_genbg_style_reset').on('click', () => {
+        const def = defaultCommandSettings('genbg', moduleSettings.promptStyle);
+        $('#custom_bg_genbg_system_prompt').val(def.systemPrompt).trigger('input');
+        $('#custom_bg_genbg_prompt_instruction').val(def.promptInstruction).trigger('input');
+        toastr.success('Background prompts reset to style default.');
+    });
+
+    $('#custom_bg_gencustom_style_reset').on('click', () => {
+        const def = defaultCommandSettings('gencustom', moduleSettings.promptStyle);
+        $('#custom_bg_gencustom_system_prompt').val(def.systemPrompt).trigger('input');
+        $('#custom_bg_gencustom_prompt_instruction').val(def.promptInstruction).trigger('input');
+        toastr.success('Scene prompts reset to style default.');
+    });
+
+    refreshPresetDropdown = async function populatePresetNameDropdown() {
+        const dropdown = document.getElementById('custom_bg_preset_name');
+        if (!dropdown) return;
+
+        const currentValue = moduleSettings.presetName || '';
+        const nameSet = new Set();
+
+        try {
+            const presetManager = typeof context.getPresetManager === 'function' ? context.getPresetManager() : null;
+            const list = presetManager?.getPresetList ? presetManager.getPresetList() : null;
+            if (Array.isArray(list)) {
+                list.forEach(name => { if (typeof name === 'string' && name) nameSet.add(name); });
+            } else if (list && typeof list === 'object') {
+                const names = list.preset_names ?? list.presets ?? list.names;
+                if (Array.isArray(names)) {
+                    names.forEach(name => { if (typeof name === 'string' && name) nameSet.add(name); });
+                } else if (names && typeof names === 'object') {
+                    Object.keys(names).forEach(name => nameSet.add(name));
+                }
+            }
+        } catch (e) {
+            console.warn('[scene-painter] Could not read preset list from PresetManager:', e);
+        }
+
+        if (nameSet.size === 0) {
+            const domSelects = document.querySelectorAll('select[id^="settings_preset"]');
+            domSelects.forEach(select => {
+                Array.from(select.options).forEach(opt => {
+                    if (opt.value && opt.textContent?.trim()) nameSet.add(opt.textContent.trim());
+                });
+            });
+        }
+
+        dropdown.innerHTML = '<option value="">(None - Use currently active preset)</option>';
+        const sorted = [...nameSet].sort((a, b) => a.localeCompare(b));
+        sorted.forEach(name => {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            dropdown.appendChild(option);
+        });
+
+        if (currentValue) {
+            if (sorted.includes(currentValue)) {
+                dropdown.value = currentValue;
+            } else {
+                const missingOption = document.createElement('option');
+                missingOption.value = currentValue;
+                missingOption.textContent = currentValue + ' (Missing/Unknown)';
+                dropdown.appendChild(missingOption);
+                dropdown.value = currentValue;
+            }
+        } else {
+            dropdown.value = '';
+        }
+    };
+    refreshPresetDropdown();
+
+    refreshConnectionProfilesDropdown = async function populateConnectionProfilesDropdown() {
         const dropdown = document.getElementById('custom_bg_connection_profile');
         if (!dropdown) return;
 
@@ -260,8 +401,8 @@ function initExtensionSettings() {
         } else {
             dropdown.value = '';
         }
-    }
-    populateConnectionProfilesDropdown();
+    };
+    refreshConnectionProfilesDropdown();
 
     function populatePresetsDropdown(selectId, presetsArray) {
         const select = $(`#${selectId}`);
@@ -279,7 +420,7 @@ function initExtensionSettings() {
 
         let systemPrompt, promptInstruction, presetName;
         if (index === '-1') {
-            const def = defaultCommandSettings(commandKey);
+            const def = defaultCommandSettings(commandKey, moduleSettings.promptStyle);
             systemPrompt = def.systemPrompt;
             promptInstruction = def.promptInstruction;
             presetName = 'Default';
@@ -362,20 +503,30 @@ function mountExtensionUI() {
             if (document.getElementById('extensions_settings')) {
                 clearInterval(checkInterval);
                 initExtensionSettings();
-            } else if (attempts >= 30) {
+            } else if (attempts >= 50) {
                 clearInterval(checkInterval);
                 console.warn('[scene-painter] Timed out waiting for #extensions_settings container.');
             }
-        }, 100);
+        }, 50);
         return;
     }
     initExtensionSettings();
 }
 
-if (eventSource && event_types?.APP_READY) {
-    eventSource.on(event_types.APP_READY, mountExtensionUI);
+// Mount immediately on module load / DOM ready
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    mountExtensionUI();
 } else {
     $(document).ready(mountExtensionUI);
+}
+
+// Optionally refresh dropdowns once ST reaches full APP_READY status
+if (eventSource && event_types?.APP_READY) {
+    eventSource.on(event_types.APP_READY, () => {
+        mountExtensionUI();
+        refreshPresetDropdown?.();
+        refreshConnectionProfilesDropdown?.();
+    });
 }
 
 // ==========================================
@@ -563,21 +714,61 @@ async function readActiveProfileName(context) {
     return (result?.pipe ?? result?.value ?? result ?? '').toString().trim();
 }
 
+async function withOptionalPreset(context, task) {
+    const presetName = (moduleSettings.presetName || '').trim();
+    if (!presetName) return await task();
+
+    const presetManager = typeof context.getPresetManager === 'function' ? context.getPresetManager() : null;
+    if (!presetManager || typeof presetManager.selectPreset !== 'function') {
+        console.warn('[scene-painter] PresetManager unavailable -- proceeding without preset switch.');
+        return await task();
+    }
+
+    let previousPreset = null;
+    try {
+        previousPreset = presetManager.getSelectedPresetName ? presetManager.getSelectedPresetName() : null;
+    } catch (err) {
+        console.warn('[scene-painter] Could not read active preset -- will not attempt to restore afterward:', err);
+    }
+
+    if (previousPreset !== null && previousPreset === presetName) {
+        return await task();
+    }
+
+    let switched = false;
+    try {
+        presetManager.selectPreset(presetName);
+        switched = true;
+        console.debug(`[scene-painter] Switched preset to "${presetName}", generating...`);
+    } catch (err) {
+        console.warn(`[scene-painter] Failed to switch to preset "${presetName}" -- proceeding without switching:`, err);
+        toastr.warning(`Could not switch to preset "${presetName}" (see console) -- using your currently active preset instead.`);
+    }
+
+    try {
+        return await task();
+    } finally {
+        if (switched && previousPreset !== null && previousPreset !== undefined && previousPreset !== presetName) {
+            try {
+                presetManager.selectPreset(previousPreset);
+                console.debug(`[scene-painter] Preset restored to "${previousPreset}".`);
+            } catch (err) {
+                console.warn(`[scene-painter] Failed to restore preset "${previousPreset}":`, err);
+            }
+        }
+    }
+}
+
 async function generateWithOptionalProfile(context, fullRawPrompt) {
     const profileName = (moduleSettings.connectionProfile || '').trim();
     if (!profileName) {
-        const raw = await context.generateRaw(fullRawPrompt);
-        return cleanGeneratedPrompt(raw);
+        return await withOptionalPreset(context, async () => {
+            const raw = await context.generateRaw(fullRawPrompt);
+            return cleanGeneratedPrompt(raw);
+        });
     }
 
     const runTask = async () => {
-        // previousProfile === null means "we don't know what was active" (the read failed) --
-        // in that case we genuinely can't restore anything and must skip it.
-        // previousProfile === '' is a DIFFERENT, legitimate state: no profile was active. That
-        // still has to be restored, or the alternate profile (e.g. a slow Horde profile) stays
-        // live as the main connection for every generation that happens after this one --
-        // including whatever runs next in the same command chain. Silently treating '' as
-        // "nothing to restore" was the bug: it left Horde stuck active past this call.
         let previousProfile = null;
         try {
             previousProfile = await readActiveProfileName(context);
@@ -589,7 +780,7 @@ async function generateWithOptionalProfile(context, fullRawPrompt) {
         try {
             await context.executeSlashCommands(`/profile ${quoteSlashArg(profileName)}`);
             console.debug(`[scene-painter] Switched profile to "${profileName}", generating...`);
-            const raw = await context.generateRaw(fullRawPrompt);
+            const raw = await withOptionalPreset(context, () => context.generateRaw(fullRawPrompt));
             console.debug(`[scene-painter] Generation via "${profileName}" complete.`);
             return cleanGeneratedPrompt(raw);
         } finally {
@@ -598,8 +789,6 @@ async function generateWithOptionalProfile(context, fullRawPrompt) {
                 try {
                     await context.executeSlashCommands(`/profile ${quoteSlashArg(restoreTarget)}`);
 
-                    // Horde profiles in particular are slow enough that a restore which silently
-                    // no-ops is easy to miss until much later. Confirm it actually took.
                     const nowActive = await readActiveProfileName(context);
                     const restoredOk = nowActive.toLowerCase() === restoreTarget.toLowerCase()
                         || (restoreTarget === 'None' && !nowActive);
@@ -615,9 +804,7 @@ async function generateWithOptionalProfile(context, fullRawPrompt) {
         }
     };
 
-    // Chain this call after whatever's currently running/queued, so profile switches never overlap.
     const result = profileSwitchQueue.then(runTask, runTask);
-    // Keep the queue moving even if this task rejects, so a failed call doesn't stall future ones.
     profileSwitchQueue = result.then(() => {}, () => {});
     return result;
 }
@@ -631,7 +818,6 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
     
     const promptInstruction = commandSettings.promptInstruction || defaults.promptInstruction;
     let systemPrompt = commandSettings.systemPrompt || defaults.systemPrompt;
-    let userPrompt = '';
 
     const charIdx = resolveCharacterIndex(targetCard);
     const userName = context.name1 || 'User';
@@ -645,8 +831,6 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
         }
         chatLog = fullChatLog.slice(0, idx + 1);
     }
-    const tokenLimit = Number(moduleSettings.historyTokenLimit) > 0 ? Number(moduleSettings.historyTokenLimit) : DEFAULT_HISTORY_TOKEN_LIMIT;
-    const recentMessages = await buildRecentMessagesBlock(chatLog, userName, tokenLimit);
 
     let wiText = '';
     if (includeWorldInfo) {
@@ -669,7 +853,6 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
         }
     }
 
-    // Determine target character name for macro substitution
     let targetCharName = '';
     if (charIdx !== null) {
         targetCharName = context.characters[charIdx]?.name || '';
@@ -690,55 +873,77 @@ async function buildImagePrompt(userInstruction, targetCard, commandKey, options
         ? `Focus specifically on the request in <specific_request>: "${userInstruction}". Use the scene/world context to figure out exactly who or what that refers to. ${promptInstruction}`
         : promptInstruction;
 
+    let fixedPromptHead = '';
+    let fixedPromptTail = '';
+
     if (charIdx !== null) {
         const targetCharacter = context.characters[charIdx];
 
-        userPrompt += `<target_character>\n`;
-        userPrompt += `  <name>${targetCharName}</name>\n`;
+        fixedPromptHead += `<target_character>\n`;
+        fixedPromptHead += `  <name>${targetCharName}</name>\n`;
         if (targetCharacter.description) {
-            userPrompt += `  <description>${replaceMacros(targetCharacter.description, targetCharName, userName)}</description>\n`;
+            fixedPromptHead += `  <description>${replaceMacros(targetCharacter.description, targetCharName, userName)}</description>\n`;
         }
         if (targetCharacter.personality) {
-            userPrompt += `  <personality>${replaceMacros(targetCharacter.personality, targetCharName, userName)}</personality>\n`;
+            fixedPromptHead += `  <personality>${replaceMacros(targetCharacter.personality, targetCharName, userName)}</personality>\n`;
         }
         if (targetCharacter.scenario) {
-            userPrompt += `  <scenario>${replaceMacros(targetCharacter.scenario, targetCharName, userName)}</scenario>\n`;
+            fixedPromptHead += `  <scenario>${replaceMacros(targetCharacter.scenario, targetCharName, userName)}</scenario>\n`;
         }
-        userPrompt += `</target_character>\n\n`;
+        fixedPromptHead += `</target_character>\n\n`;
 
-        if (personaText) userPrompt += `<user_persona>\n  <name>${userName}</name>\n${personaText}\n</user_persona>\n\n`;
-        if (wiText) userPrompt += `<world_lore>\n${wiText}\n</world_lore>\n\n`;
-        userPrompt += `<recent_scene>\n${recentMessages}\n</recent_scene>\n\n`;
-        userPrompt += specificRequestBlock;
-        userPrompt += `<instruction>\n${effectiveInstruction}\n</instruction>\n\n`;
+        if (personaText) fixedPromptHead += `<user_persona>\n  <name>${userName}</name>\n${personaText}\n</user_persona>\n\n`;
+        if (wiText) fixedPromptHead += `<world_lore>\n${wiText}\n</world_lore>\n\n`;
+
+        fixedPromptTail += specificRequestBlock;
+        fixedPromptTail += `<instruction>\n${effectiveInstruction}\n</instruction>\n\n`;
 
         if (targetCharacter.post_history_instructions) {
-            userPrompt += `<post_history_instructions>\n${replaceMacros(targetCharacter.post_history_instructions, targetCharName, userName)}\n</post_history_instructions>`;
+            fixedPromptTail += `<post_history_instructions>\n${replaceMacros(targetCharacter.post_history_instructions, targetCharName, userName)}\n</post_history_instructions>`;
         }
     } else {
-        // Ignored active card by default (Narrator setup)
-        if (personaText) userPrompt += `<user_persona>\n  <name>${userName}</name>\n${personaText}\n</user_persona>\n\n`;
-        if (wiText) userPrompt += `<world_lore>\n${wiText}\n</world_lore>\n\n`;
-        userPrompt += `<recent_scene>\n${recentMessages}\n</recent_scene>\n\n`;
-        userPrompt += specificRequestBlock;
-        userPrompt += `<instruction>\n${effectiveInstruction}\n</instruction>`;
+        if (personaText) fixedPromptHead += `<user_persona>\n  <name>${userName}</name>\n${personaText}\n</user_persona>\n\n`;
+        if (wiText) fixedPromptHead += `<world_lore>\n${wiText}\n</world_lore>\n\n`;
+
+        fixedPromptTail += specificRequestBlock;
+        fixedPromptTail += `<instruction>\n${effectiveInstruction}\n</instruction>`;
     }
 
+    const totalBudget = Number(moduleSettings.totalContextTokenLimit) > 0
+        ? Number(moduleSettings.totalContextTokenLimit)
+        : DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT;
+    const historyCeiling = Number(moduleSettings.historyTokenLimit) > 0
+        ? Number(moduleSettings.historyTokenLimit)
+        : DEFAULT_HISTORY_TOKEN_LIMIT;
+
+    const fixedTokens = await countTokens(systemPrompt) + await countTokens(fixedPromptHead) + await countTokens(fixedPromptTail)
+        + await countTokens('<recent_scene>\n\n</recent_scene>\n\n');
+    const availableForHistory = Math.max(0, totalBudget - fixedTokens);
+    const historyBudget = Math.min(historyCeiling, availableForHistory);
+
+    if (fixedTokens >= totalBudget) {
+        console.warn(`[scene-painter] Fixed prompt content (system prompt + character/persona/lore/instructions) alone is ~${fixedTokens} tokens, at or over the Total Prompt Token Budget of ${totalBudget}. Chat history will be omitted; consider raising the budget or trimming lore/persona.`);
+        toastr.warning(`Character/lore/persona content alone is ~${fixedTokens} tokens -- at or over your Total Prompt Token Budget (${totalBudget}). No room left for chat history this generation.`);
+    }
+
+    const recentMessages = await buildRecentMessagesBlock(chatLog, userName, historyBudget);
+
+    const userPrompt = fixedPromptHead
+        + `<recent_scene>\n${recentMessages}\n</recent_scene>\n\n`
+        + fixedPromptTail;
+
     const fullRawPrompt = `<system_prompt>\n${systemPrompt}\n</system_prompt>\n\n<user_prompt>\n${userPrompt}\n</user_prompt>`;
+
+    const totalTokens = fixedTokens + await countTokens(recentMessages);
+    if (totalTokens > totalBudget) {
+        console.warn(`[scene-painter] Assembled prompt is ~${totalTokens} tokens, over the Total Prompt Token Budget of ${totalBudget}.`);
+    }
+
     return await generateWithOptionalProfile(context, fullRawPrompt);
 }
 
 async function uploadAndSetBackground(imageUrl) {
     try {
-        // ST's own chat-scoped custom background list (chat_metadata.chat_backgrounds) treats each
-        // entry as a raw, fetchable URL string rather than requiring it live under backgrounds/ —
-        // see public/scripts/backgrounds.js, where custom (isCustom) entries are used as-is:
-        //   const url = isCustom ? bg : getBackgroundPath(bg);
-        // So we can point the chat background directly at the image the SD extension already wrote
-        // to disk, instead of downloading it and re-uploading a duplicate copy via
-        // /api/backgrounds/upload. This trades away having an independent copy (if the original
-        // generated image is ever deleted, e.g. character image folder cleanup, the background link
-        // would break) in exchange for skipping an extra fetch+upload round trip.
         const relativePath = imageUrl.replace(/^\/+/, '');
         const cssUrl = `url("${relativePath}")`;
 
@@ -759,6 +964,15 @@ async function uploadAndSetBackground(imageUrl) {
     } catch (err) {
         toastr.error(`Failed to apply background: ${err.message}`);
     }
+}
+
+// Dispatches a fully-built /sd command. If the setting to prevent free mode prompt extension is active,
+// passes extend=false to the /sd command so this extension's generated prompt is not re-elaborated by the LLM.
+async function dispatchToSD(context, sdCommand) {
+    if (moduleSettings.disableFreeExtend !== false && !/\bextend=/.test(sdCommand)) {
+        sdCommand = sdCommand.replace(/^\/sd\b/, '/sd extend=false');
+    }
+    return await context.executeSlashCommands(sdCommand);
 }
 
 // ==========================================
@@ -815,7 +1029,7 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             if (negativePrompt) sdCommand += ` negative=${quoteSlashArg(negativePrompt)}`;
             sdCommand += ` ${quoteSlashArg(finalPrompt)}`;
 
-            const sdResult = await context.executeSlashCommands(sdCommand);
+            const sdResult = await dispatchToSD(context, sdCommand);
 
             let imageUrl = null;
             const rawPipe = sdResult?.pipe ?? sdResult?.value ?? sdResult;
@@ -899,10 +1113,6 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             if (negativePrompt) sdCommand += ` negative=${quoteSlashArg(negativePrompt)}`;
             sdCommand += ` ${quoteSlashArg(finalPrompt)}`;
 
-            // Diagnostic: confirm which connection profile is live right before dispatching to /sd.
-            // If this ever logs the extension's alternate profile (e.g. an AI Horde text profile)
-            // instead of the user's normal one, the profile restore in generateWithOptionalProfile
-            // didn't take -- that's the thing to chase.
             try {
                 const activeProfile = await readActiveProfileName(context);
                 console.debug(`[scene-painter] drawscene: dispatching to /sd with profile "${activeProfile || '(none)'}":`, finalPrompt);
@@ -910,7 +1120,7 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
                 console.debug('[scene-painter] drawscene: dispatching to /sd (could not read active profile for logging):', finalPrompt);
             }
 
-            const sdResult = await context.executeSlashCommands(sdCommand);
+            const sdResult = await dispatchToSD(context, sdCommand);
             console.debug('[scene-painter] drawscene: /sd returned:', sdResult);
 
             let imageUrl = null;
