@@ -3,10 +3,10 @@
     "loading_order": 1000,
     "js": "index.js",
     "author": "i5031337",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "minimum_client_version": "1.12.0",
     "requires": [],
     "optional": [],
     "dependencies": [],
-    "description": "Generates dynamic scene backgrounds and in-chat illustrations using LLM evaluation and style director character cards."
+    "description": "Generates dynamic scene backgrounds and in-chat illustrations using LLM evaluation, bypassing presets and allowing secondary connection profiles."
 }
