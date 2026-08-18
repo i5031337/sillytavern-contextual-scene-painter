@@ -25,13 +25,6 @@ export const DEFAULT_GENCUSTOM_PROMPT_INSTRUCTION_TAGS = 'Synthesize the provide
 export const DEFAULT_HISTORY_TOKEN_LIMIT = 2048;
 export const DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT = 8192;
 
-export let moduleSettings = {};
-export let refreshConnectionProfilesDropdown = null;
-
-export function getModuleSettings() {
-    return moduleSettings;
-}
-
 export function defaultCommandSettings(commandKey = 'genbg', promptStyle = 'natural') {
     const useTags = promptStyle === 'tags';
     if (commandKey === 'gencustom') {
@@ -46,10 +39,33 @@ export function defaultCommandSettings(commandKey = 'genbg', promptStyle = 'natu
     };
 }
 
+export function getModuleSettings() {
+    if (!extension_settings.customBgGen) {
+        extension_settings.customBgGen = {
+            genbg: defaultCommandSettings('genbg', 'natural'),
+            gencustom: defaultCommandSettings('gencustom', 'natural'),
+            forceEdit: true,
+            connectionProfile: '',
+            genMaxResponse: 0,
+            genTemperature: null,
+            disableFreeExtend: true,
+            includeCharacter: true,
+            includePersona: true,
+            includeWorldInfo: true,
+            historyTokenLimit: DEFAULT_HISTORY_TOKEN_LIMIT,
+            totalContextTokenLimit: DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT,
+            genbgPresets: [],
+            gencustomPresets: [],
+        };
+    }
+    return extension_settings.customBgGen;
+}
+
 export function isEditPromptEnabled() {
-    if (moduleSettings.forceEdit) return true;
+    const settings = getModuleSettings();
+    if (settings.forceEdit) return true;
     const context = getContext();
-    return !!context.extension_settings?.sd?.refine_mode;
+    return !!context.extensionSettings?.sd?.refine_mode || !!extension_settings?.sd?.refine_mode;
 }
 
 export function tightenPromptPopupLayout() {
@@ -126,7 +142,7 @@ export function initExtensionSettings() {
             gencustomPresets: [],
         };
     }
-    moduleSettings = extension_settings.customBgGen;
+    let moduleSettings = extension_settings.customBgGen;
 
     // Clean up legacy settings keys
     if (moduleSettings.presetName !== undefined) delete moduleSettings.presetName;
@@ -390,17 +406,18 @@ export function initExtensionSettings() {
         saveSettings();
     });
 
-    refreshConnectionProfilesDropdown = async function populateConnectionProfilesDropdown() {
+    function populateConnectionProfilesDropdown() {
         const dropdown = document.getElementById('custom_bg_connection_profile');
         if (!dropdown) return;
 
         const currentValue = moduleSettings.connectionProfile || '';
         const profileNames = new Set();
 
+        // 1. Read from standard SillyTavern connectionManager extension settings
         try {
-            const connExt = window.extension_settings?.connectionProfiles;
-            if (connExt?.profiles) {
-                for (const profile of Object.values(connExt.profiles)) {
+            const connProfiles = extension_settings?.connectionManager?.profiles;
+            if (Array.isArray(connProfiles)) {
+                for (const profile of connProfiles) {
                     if (profile && profile.name) {
                         profileNames.add(profile.name.trim());
                     }
@@ -408,6 +425,7 @@ export function initExtensionSettings() {
             }
         } catch (e) { /* ignore */ }
 
+        // 2. Fallback to DOM select if extension settings not ready yet
         if (profileNames.size === 0) {
             const domSelects = document.querySelectorAll('select[id*="connection_profile"], select[id*="profile_select"]');
             domSelects.forEach(select => {
@@ -445,7 +463,7 @@ export function initExtensionSettings() {
             dropdown.value = '';
         }
     };
-    refreshConnectionProfilesDropdown();
+    populateConnectionProfilesDropdown();
 
     function populatePresetsDropdown(selectId, presetsArray) {
         const select = $(`#${selectId}`);
@@ -577,6 +595,6 @@ if (typeof document !== 'undefined') {
 if (eventSource && event_types?.APP_READY) {
     eventSource.on(event_types.APP_READY, () => {
         mountExtensionUI();
-        refreshConnectionProfilesDropdown?.();
+    initExtensionSettings();
     });
 }

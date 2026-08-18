@@ -1,6 +1,6 @@
 import { SlashCommandParser } from '/scripts/slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '/scripts/slash-commands/SlashCommand.js';
-import { ARGUMENT_TYPE } from '/scripts/slash-commands/SlashCommandArgument.js';
+import { SlashCommandArgument, SlashCommandNamedArgument, ARGUMENT_TYPE } from '/scripts/slash-commands/SlashCommandArgument.js';
 import { getContext } from '/scripts/extensions.js';
 
 import {
@@ -29,6 +29,44 @@ export * from './settings.js';
 export * from './prompt-builder.js';
 export * from './api-connection.js';
 
+function resolveCardOption(rawCard, defaultIncludeCharacter) {
+    let includeCharacter = defaultIncludeCharacter !== false;
+    let targetCard = null;
+
+    if (rawCard !== undefined && rawCard !== null && rawCard !== '') {
+        const parsedBool = parseBoolArg(rawCard, null);
+        if (parsedBool === false) {
+            includeCharacter = false;
+            targetCard = null;
+        } else if (parsedBool === true) {
+            includeCharacter = true;
+            targetCard = null;
+        } else {
+            includeCharacter = true;
+            targetCard = String(rawCard).trim();
+        }
+    }
+
+    return { includeCharacter, targetCard };
+}
+
+function extractImageUrl(sdResult) {
+    if (!sdResult) return '';
+    const raw = (sdResult?.pipe ?? sdResult?.value ?? sdResult);
+    if (typeof raw === 'string') {
+        const trimmed = raw.trim();
+        if (trimmed.startsWith('user/images') || trimmed.startsWith('/user/images') || trimmed.startsWith('http')) {
+            return trimmed;
+        }
+        const matches = [...trimmed.matchAll(/(?:src=["']?|!\[.*?\]\()([^"'\s\)]+)/gi)];
+        if (matches.length > 0) return matches[matches.length - 1][1];
+    }
+    const strResult = typeof sdResult === 'object' ? JSON.stringify(sdResult) : String(sdResult);
+    const pathMatches = [...strResult.matchAll(/(user\/images\/[^\s"':]+\.(?:png|jpg|jpeg|webp))/gi)];
+    if (pathMatches.length > 0) return pathMatches[pathMatches.length - 1][1];
+    return typeof raw === 'string' ? raw : '';
+}
+
 // ==========================================
 // SLASH COMMAND 1: /drawbg (Chat Background)
 // ==========================================
@@ -37,20 +75,60 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
     name: 'drawbg',
     aliases: ['genbg', 'bgdraw', 'paintbg'],
     returns: 'Generates an environment background image and applies it to the chat background',
-    namedArguments: [
-        { name: 'card', description: 'Character card name or boolean flag (default: from settings)', type: [ARGUMENT_TYPE.STRING, ARGUMENT_TYPE.BOOLEAN], required: false },
-        { name: 'width', description: 'Image width (default: 1920)', type: [ARGUMENT_TYPE.NUMBER], required: false },
-        { name: 'height', description: 'Image height (default: 1080)', type: [ARGUMENT_TYPE.NUMBER], required: false },
-        { name: 'negative', description: 'Negative prompt additions for this generation', type: [ARGUMENT_TYPE.STRING], required: false },
-        { name: 'persona', description: 'Include active Persona description (default: from settings)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
-        { name: 'worldinfo', description: 'Include active World Info entries (default: from settings)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
-        { name: 'messageid', description: 'Generate from this message ID (and prior context) instead of the most recent message', type: [ARGUMENT_TYPE.NUMBER], required: false }
+    namedArgumentList: [
+        SlashCommandNamedArgument.fromProps({
+            name: 'card',
+            description: 'Character card name or boolean flag (default: from settings)',
+            typeList: [ARGUMENT_TYPE.STRING, ARGUMENT_TYPE.BOOLEAN],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'width',
+            description: 'Image width (default: 1920)',
+            typeList: [ARGUMENT_TYPE.NUMBER],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'height',
+            description: 'Image height (default: 1080)',
+            typeList: [ARGUMENT_TYPE.NUMBER],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'negative',
+            description: 'Negative prompt additions for this generation',
+            typeList: [ARGUMENT_TYPE.STRING],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'persona',
+            description: 'Include active Persona description (default: from settings)',
+            typeList: [ARGUMENT_TYPE.BOOLEAN],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'worldinfo',
+            description: 'Include active World Info entries (default: from settings)',
+            typeList: [ARGUMENT_TYPE.BOOLEAN],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'messageid',
+            description: 'Generate from this message ID (and prior context) instead of the most recent message',
+            typeList: [ARGUMENT_TYPE.NUMBER],
+            isRequired: false
+        })
     ],
-    unnamedArguments: [{ description: 'One-off direction for the prompt generator LLM', type: [ARGUMENT_TYPE.STRING], required: false }],
+    unnamedArgumentList: [
+        SlashCommandArgument.fromProps({
+            description: 'One-off direction for the prompt generator LLM',
+            typeList: [ARGUMENT_TYPE.STRING],
+            isRequired: false
+        })
+    ],
     callback: async (args, value) => {
         const moduleSettings = getModuleSettings();
         const userInstruction = typeof value === 'string' ? value.trim() : '';
-        const rawCard = args?.card;
         const width = args?.width || 1920;
         const height = args?.height || 1080;
         const negativePrompt = typeof args?.negative === 'string' ? args.negative.trim() : '';
@@ -59,22 +137,7 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         const rawMessageId = args?.messageid;
         const messageId = (rawMessageId !== undefined && rawMessageId !== null && rawMessageId !== '') ? Number(rawMessageId) : null;
 
-        let includeCharacter = moduleSettings.includeCharacter !== false;
-        let targetCard = null;
-
-        if (rawCard !== undefined && rawCard !== null && rawCard !== '') {
-            const parsedBool = parseBoolArg(rawCard, null);
-            if (parsedBool === false) {
-                includeCharacter = false;
-                targetCard = null;
-            } else if (parsedBool === true) {
-                includeCharacter = true;
-                targetCard = null;
-            } else {
-                includeCharacter = true;
-                targetCard = String(rawCard).trim();
-            }
-        }
+        const { includeCharacter, targetCard } = resolveCardOption(args?.card, moduleSettings.includeCharacter);
 
         if (typeof toastr !== 'undefined') toastr.info('Generating background image...');
 
@@ -101,30 +164,12 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
                 throw new Error('LLM generated an empty image prompt.');
             }
 
-            let sdCommand = `/sd raw=true quiet=true width=${width} height=${height}`;
+            let sdCommand = `/sd quiet=true width=${width} height=${height}`;
             if (negativePrompt) sdCommand += ` negative=${quoteSlashArg(negativePrompt)}`;
             sdCommand += ` ${quoteSlashArg(finalPrompt)}`;
 
             const sdResult = await dispatchToSD(context, sdCommand);
-
-            let imageUrl = null;
-            const rawPipe = sdResult?.pipe ?? sdResult?.value ?? sdResult;
-
-            if (typeof rawPipe === 'string') {
-                const trimmed = rawPipe.trim();
-                if (trimmed.startsWith('user/images') || trimmed.startsWith('/user/images') || trimmed.startsWith('http')) {
-                    imageUrl = trimmed;
-                } else {
-                    const matches = [...trimmed.matchAll(/(?:src=["']?|!\[.*?\]\()([^"'\s\)]+)/gi)];
-                    if (matches.length > 0) imageUrl = matches[matches.length - 1][1];
-                }
-            }
-
-            if (!imageUrl) {
-                const strResult = typeof sdResult === 'object' ? JSON.stringify(sdResult) : String(sdResult);
-                const pathMatches = [...strResult.matchAll(/(user\/images\/[^\s"':]+\.(?:png|jpg|jpeg|webp))/gi)];
-                if (pathMatches.length > 0) imageUrl = pathMatches[pathMatches.length - 1][1];
-            }
+            const imageUrl = extractImageUrl(sdResult);
 
             if (!imageUrl) throw new Error('Image generator did not return a valid image path');
             await uploadAndSetBackground(imageUrl);
@@ -145,42 +190,67 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
     name: 'drawscene',
     aliases: ['gencustom', 'genchat', 'snapshot', 'drawchat'],
     returns: 'the path/URL of the generated image, so it can be piped into another command (e.g. /drawscene | /something {{pipe}})',
-    namedArguments: [
-        { name: 'card', description: 'Character card name or boolean flag (default: from settings)', type: [ARGUMENT_TYPE.STRING, ARGUMENT_TYPE.BOOLEAN], required: false },
-        { name: 'width', description: 'Image width (optional)', type: [ARGUMENT_TYPE.NUMBER], required: false },
-        { name: 'height', description: 'Image height (optional)', type: [ARGUMENT_TYPE.NUMBER], required: false },
-        { name: 'negative', description: 'Negative prompt additions for this generation', type: [ARGUMENT_TYPE.STRING], required: false },
-        { name: 'persona', description: 'Include active Persona description (default: from settings)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
-        { name: 'worldinfo', description: 'Include active World Info entries (default: from settings)', type: [ARGUMENT_TYPE.BOOLEAN], required: false },
-        { name: 'messageid', description: 'Generate from this message ID (and prior context) instead of the most recent message', type: [ARGUMENT_TYPE.NUMBER], required: false }
+    namedArgumentList: [
+        SlashCommandNamedArgument.fromProps({
+            name: 'card',
+            description: 'Character card name or boolean flag (default: from settings)',
+            typeList: [ARGUMENT_TYPE.STRING, ARGUMENT_TYPE.BOOLEAN],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'width',
+            description: 'Image width (optional)',
+            typeList: [ARGUMENT_TYPE.NUMBER],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'height',
+            description: 'Image height (optional)',
+            typeList: [ARGUMENT_TYPE.NUMBER],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'negative',
+            description: 'Negative prompt additions for this generation',
+            typeList: [ARGUMENT_TYPE.STRING],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'persona',
+            description: 'Include active Persona description (default: from settings)',
+            typeList: [ARGUMENT_TYPE.BOOLEAN],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'worldinfo',
+            description: 'Include active World Info entries (default: from settings)',
+            typeList: [ARGUMENT_TYPE.BOOLEAN],
+            isRequired: false
+        }),
+        SlashCommandNamedArgument.fromProps({
+            name: 'messageid',
+            description: 'Generate from this message ID (and prior context) instead of the most recent message',
+            typeList: [ARGUMENT_TYPE.NUMBER],
+            isRequired: false
+        })
     ],
-    unnamedArguments: [{ description: 'One-off direction for the prompt generator LLM', type: [ARGUMENT_TYPE.STRING], required: false }],
+    unnamedArgumentList: [
+        SlashCommandArgument.fromProps({
+            description: 'One-off direction for the prompt generator LLM',
+            typeList: [ARGUMENT_TYPE.STRING],
+            isRequired: false
+        })
+    ],
     callback: async (args, value) => {
         const moduleSettings = getModuleSettings();
         const userInstruction = typeof value === 'string' ? value.trim() : '';
-        const rawCard = args?.card;
         const negativePrompt = typeof args?.negative === 'string' ? args.negative.trim() : '';
         const includePersona = parseBoolArg(args?.persona, moduleSettings.includePersona !== false);
         const includeWorldInfo = parseBoolArg(args?.worldinfo, moduleSettings.includeWorldInfo !== false);
         const rawMessageId = args?.messageid;
         const messageId = (rawMessageId !== undefined && rawMessageId !== null && rawMessageId !== '') ? Number(rawMessageId) : null;
 
-        let includeCharacter = moduleSettings.includeCharacter !== false;
-        let targetCard = null;
-
-        if (rawCard !== undefined && rawCard !== null && rawCard !== '') {
-            const parsedBool = parseBoolArg(rawCard, null);
-            if (parsedBool === false) {
-                includeCharacter = false;
-                targetCard = null;
-            } else if (parsedBool === true) {
-                includeCharacter = true;
-                targetCard = null;
-            } else {
-                includeCharacter = true;
-                targetCard = String(rawCard).trim();
-            }
-        }
+        const { includeCharacter, targetCard } = resolveCardOption(args?.card, moduleSettings.includeCharacter);
 
         if (typeof toastr !== 'undefined') toastr.info('Generating scene image...');
 
@@ -209,7 +279,7 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
                 throw new Error('LLM generated an empty image prompt.');
             }
 
-            let sdCommand = `/sd raw=true`;
+            let sdCommand = `/sd`;
             if (args?.width) sdCommand += ` width=${args.width}`;
             if (args?.height) sdCommand += ` height=${args.height}`;
             if (negativePrompt) sdCommand += ` negative=${quoteSlashArg(negativePrompt)}`;
@@ -225,28 +295,11 @@ SlashCommandParser.addCommandObject(SlashCommand.fromProps({
             const sdResult = await dispatchToSD(context, sdCommand);
             console.debug('[scene-painter] drawscene: /sd returned:', sdResult);
 
-            let imageUrl = null;
-            const rawPipe = sdResult?.pipe ?? sdResult?.value ?? sdResult;
-
-            if (typeof rawPipe === 'string') {
-                const trimmed = rawPipe.trim();
-                if (trimmed.startsWith('user/images') || trimmed.startsWith('/user/images') || trimmed.startsWith('http')) {
-                    imageUrl = trimmed;
-                } else {
-                    const matches = [...trimmed.matchAll(/(?:src=["']?|!\[.*?\]\()([^"'\s\)]+)/gi)];
-                    if (matches.length > 0) imageUrl = matches[matches.length - 1][1];
-                }
-            }
-
-            if (!imageUrl) {
-                const strResult = typeof sdResult === 'object' ? JSON.stringify(sdResult) : String(sdResult);
-                const pathMatches = [...strResult.matchAll(/(user\/images\/[^\s"':]+\.(?:png|jpg|jpeg|webp))/gi)];
-                if (pathMatches.length > 0) imageUrl = pathMatches[pathMatches.length - 1][1];
-            }
+            const imageUrl = extractImageUrl(sdResult);
 
             if (typeof toastr !== 'undefined') toastr.success('Scene image requested!');
 
-            return imageUrl || (typeof rawPipe === 'string' ? rawPipe : '');
+            return imageUrl || (typeof sdResult === 'string' ? sdResult : '');
 
         } catch (err) {
             if (typeof toastr !== 'undefined') toastr.error(`Scene image generation failed: ${err.message}`);

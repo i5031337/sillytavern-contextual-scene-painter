@@ -33,6 +33,13 @@ export function resolveCharacterIndex(cardName) {
 
 export function replaceMacros(text, charName = '', userName = '') {
     if (!text) return '';
+    const context = getContext();
+    if (typeof context.substituteParamsExtended === 'function') {
+        return context.substituteParamsExtended(text, { char: charName, user: userName });
+    }
+    if (typeof context.substituteParams === 'function') {
+        return context.substituteParams(text);
+    }
     return text
         .replace(/{{char}}/gi, () => charName)
         .replace(/{{user}}/gi, () => userName);
@@ -62,21 +69,12 @@ export function parseBoolArg(value, defaultValue) {
 // TOKENIZATION & CONTEXT EXTRACTION
 // ==========================================
 
-let tokenizerModule = null;
-export async function getTokenizer() {
-    if (!tokenizerModule) {
-        try {
-            tokenizerModule = await import('/scripts/tokenizers.js');
-        } catch (e) { /* fallback */ }
-    }
-    return tokenizerModule;
-}
-
 export async function countTokens(text) {
     if (!text) return 0;
-    const tok = await getTokenizer();
-    if (tok?.getTokenCountAsync) return await tok.getTokenCountAsync(text);
-    if (tok?.getTokenCount) return tok.getTokenCount(text);
+    const context = getContext();
+    if (typeof context.getTokenCountAsync === 'function') {
+        return await context.getTokenCountAsync(text);
+    }
     return Math.ceil(text.length / 4);
 }
 
@@ -103,14 +101,14 @@ export async function buildRecentMessagesBlock(chatLog, userName, tokenLimit) {
     return lines.join('\n');
 }
 
-export async function getActivePersonaDescription() {
-    try {
-        const puModule = await import('/scripts/power-user.js');
-        const desc = puModule?.power_user?.persona_description;
-        return typeof desc === 'string' ? desc.trim() : '';
-    } catch (err) {
-        return '';
+export function getActivePersonaDescription() {
+    const context = getContext();
+    const pu = context.powerUserSettings;
+    if (!pu) return '';
+    if (typeof pu.persona_description === 'string' && pu.persona_description.trim()) {
+        return pu.persona_description.trim();
     }
+    return '';
 }
 
 // ==========================================
@@ -155,7 +153,7 @@ export async function buildImagePrompt(userInstruction = '', targetCard = '', co
         : DEFAULT_HISTORY_TOKEN_LIMIT;
     
     const promptInstruction = commandSettings.promptInstruction || defaults.promptInstruction;
-    let systemPrompt = commandSettings.systemPrompt || defaults.systemPrompt;
+    const systemPrompt = commandSettings.systemPrompt || defaults.systemPrompt;
 
     let charIdx = null;
     if (includeCharacter) {
@@ -181,21 +179,40 @@ export async function buildImagePrompt(userInstruction = '', targetCard = '', co
         chatLog = fullChatLog.slice(0, idx + 1);
     }
 
+    let targetCharacter = null;
+    let targetCharName = '';
+    if (charIdx !== null && context.characters?.[charIdx]) {
+        targetCharacter = context.characters[charIdx];
+        targetCharName = targetCharacter?.name || '';
+    }
+
+    let personaText = '';
+    if (includePersona) {
+        const personaDescription = getActivePersonaDescription();
+        if (personaDescription) {
+            personaText = replaceMacros(personaDescription, targetCharName, userName);
+        }
+    }
+
     let wiText = '';
     if (includeWorldInfo) {
         try {
-            let getWorldInfoPrompt = window.getWorldInfoPrompt;
-            if (typeof getWorldInfoPrompt !== 'function') {
-                const wiModule = await import('/scripts/world-info.js');
-                getWorldInfoPrompt = wiModule?.getWorldInfoPrompt || wiModule?.default;
-            }
-
+            const getWorldInfoPrompt = context.getWorldInfoPrompt;
             if (typeof getWorldInfoPrompt === 'function') {
-                const chatStrings = chatLog
+                const chatForWI = chatLog
                     .filter(m => m && !m.is_system && !m.is_hidden)
-                    .map(m => `${m.name}: ${m.mes}`);
+                    .map(m => `${m.name}: ${m.mes}`)
+                    .reverse(); // Reverse for proper scan depth evaluation (index 0 = most recent message)
                     
-                const wiResult = await getWorldInfoPrompt(chatStrings, totalBudget, true);
+                const globalScanData = {
+                    personaDescription: personaText,
+                    characterDescription: targetCharacter?.description || '',
+                    characterPersonality: targetCharacter?.personality || '',
+                    scenario: targetCharacter?.scenario || '',
+                    trigger: 'normal',
+                };
+
+                const wiResult = await getWorldInfoPrompt(chatForWI, totalBudget, true, globalScanData);
                 if (typeof wiResult === 'string') {
                     wiText = wiResult;
                 } else if (wiResult && typeof wiResult === 'object') {
@@ -204,19 +221,6 @@ export async function buildImagePrompt(userInstruction = '', targetCard = '', co
             }
         } catch (err) {
             console.warn('[scene-painter] Could not load World Info:', err);
-        }
-    }
-
-    let targetCharName = '';
-    if (charIdx !== null && context.characters?.[charIdx]) {
-        targetCharName = context.characters[charIdx]?.name || '';
-    }
-
-    let personaText = '';
-    if (includePersona) {
-        const personaDescription = await getActivePersonaDescription();
-        if (personaDescription) {
-            personaText = replaceMacros(personaDescription, targetCharName, userName);
         }
     }
 
@@ -230,9 +234,7 @@ export async function buildImagePrompt(userInstruction = '', targetCard = '', co
     let fixedPromptHead = '';
     let fixedPromptTail = '';
 
-    if (charIdx !== null && context.characters?.[charIdx]) {
-        const targetCharacter = context.characters[charIdx];
-
+    if (targetCharacter) {
         fixedPromptHead += `<target_character>\n`;
         fixedPromptHead += `  <name>${targetCharName}</name>\n`;
         if (targetCharacter.description) {
@@ -281,12 +283,13 @@ export async function buildImagePrompt(userInstruction = '', targetCard = '', co
         + `<recent_scene>\n${recentMessages}\n</recent_scene>\n\n`
         + fixedPromptTail;
 
-    const fullRawPrompt = `<system_prompt>\n${systemPrompt}\n</system_prompt>\n\n<user_prompt>\n${userPrompt}\n</user_prompt>`;
-
     const totalTokens = fixedTokens + await countTokens(recentMessages);
     if (totalTokens > totalBudget) {
         console.warn(`[scene-painter] Assembled prompt is ~${totalTokens} tokens, over the Total Prompt Token Budget of ${totalBudget}.`);
     }
 
-    return await generateWithOptionalProfile(context, fullRawPrompt);
+    return await generateWithOptionalProfile(context, {
+        prompt: userPrompt,
+        systemPrompt: systemPrompt
+    });
 }
