@@ -6,7 +6,7 @@ import { generateWithOptionalProfile } from './api-connection.js';
 // CHARACTER & MACRO UTILITIES
 // ==========================================
 
-export function resolveCharacterIndex(cardName) {
+export function resolveCharacterIndex(cardName='') {
     if (!cardName) return null;
     const context = getContext();
     const characters = context.characters || [];
@@ -31,7 +31,7 @@ export function resolveCharacterIndex(cardName) {
     return matches.length === 1 ? matches[0].i : null;
 }
 
-export function sanitizePromptForSlashCommand(promptText) {
+export function sanitizePromptForSlashCommand(promptText='') {
     if (!promptText) return '';
     return promptText
         .replace(/\{\{/g, '{ {')  // Break macro syntax so LLM output can't trigger ST macros
@@ -42,7 +42,7 @@ export function sanitizePromptForSlashCommand(promptText) {
         .trim();
 }
 
-export function parseBoolArg(value, defaultValue) {
+export function parseBoolArg(value='', defaultValue=false) {
     if (value === undefined || value === null || value === '') return defaultValue;
     if (typeof value === 'boolean') return value;
     const normalized = String(value).trim().toLowerCase();
@@ -55,7 +55,7 @@ export function parseBoolArg(value, defaultValue) {
 // TOKENIZATION & CONTEXT EXTRACTION
 // ==========================================
 
-export async function countTokens(text) {
+export async function countTokens(text='') {
     if (!text) return 0;
     const context = getContext();
     if (typeof context.getTokenCountAsync === 'function') {
@@ -64,7 +64,7 @@ export async function countTokens(text) {
     return Math.ceil(text.length / 4);
 }
 
-export async function buildRecentMessagesBlock(chatLog, userName, tokenLimit) {
+export async function buildRecentMessagesBlock(chatLog, userName='', tokenLimit=4096) {
     const limit = Number(tokenLimit) > 0 ? Number(tokenLimit) : DEFAULT_HISTORY_TOKEN_LIMIT;
     const lines = [];
     let usedTokens = 0;
@@ -193,14 +193,12 @@ export async function buildImagePrompt(userInstruction = '', targetCard = '', co
                     characterPersonality: targetCharacter?.personality || '',
                     scenario: targetCharacter?.scenario || '',
                     trigger: 'normal',
+                    characterDepthPrompt: '',
+                    creatorNotes: ''
                 };
 
                 const wiResult = await getWorldInfoPrompt(chatForWI, totalBudget, true, globalScanData);
-                if (typeof wiResult === 'string') {
-                    wiText = wiResult;
-                } else if (wiResult && typeof wiResult === 'object') {
-                    wiText = wiResult.worldInfoString || wiResult.worldInfoPrompt || wiResult.format || '';
-                }
+                wiText = wiResult.worldInfoString || '';
             }
         } catch (err) {
             console.warn('[scene-painter] Could not load World Info:', err);
