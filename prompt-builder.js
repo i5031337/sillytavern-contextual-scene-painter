@@ -31,20 +31,6 @@ export function resolveCharacterIndex(cardName) {
     return matches.length === 1 ? matches[0].i : null;
 }
 
-export function replaceMacros(text, charName = '', userName = '') {
-    if (!text) return '';
-    const context = getContext();
-    if (typeof context.substituteParamsExtended === 'function') {
-        return context.substituteParamsExtended(text, { char: charName, user: userName });
-    }
-    if (typeof context.substituteParams === 'function') {
-        return context.substituteParams(text);
-    }
-    return text
-        .replace(/{{char}}/gi, () => charName)
-        .replace(/{{user}}/gi, () => userName);
-}
-
 export function sanitizePromptForSlashCommand(promptText) {
     if (!promptText) return '';
     return promptText
@@ -188,10 +174,7 @@ export async function buildImagePrompt(userInstruction = '', targetCard = '', co
 
     let personaText = '';
     if (includePersona) {
-        const personaDescription = getActivePersonaDescription();
-        if (personaDescription) {
-            personaText = replaceMacros(personaDescription, targetCharName, userName);
-        }
+        personaText = getActivePersonaDescription();
     }
 
     let wiText = '';
@@ -227,9 +210,6 @@ export async function buildImagePrompt(userInstruction = '', targetCard = '', co
     const specificRequestBlock = userInstruction
         ? `<specific_request>\n${userInstruction}\n</specific_request>\n\n`
         : '';
-    const effectiveInstruction = userInstruction
-        ? `Focus specifically on the request in <specific_request>: "${userInstruction}". Use the scene/world context to figure out exactly who or what that refers to. ${promptInstruction}`
-        : promptInstruction;
 
     let fixedPromptHead = '';
     let fixedPromptTail = '';
@@ -238,32 +218,25 @@ export async function buildImagePrompt(userInstruction = '', targetCard = '', co
         fixedPromptHead += `<target_character>\n`;
         fixedPromptHead += `  <name>${targetCharName}</name>\n`;
         if (targetCharacter.description) {
-            fixedPromptHead += `  <description>${replaceMacros(targetCharacter.description, targetCharName, userName)}</description>\n`;
+            fixedPromptHead += `  <description>${targetCharacter.description}</description>\n`;
         }
         if (targetCharacter.personality) {
-            fixedPromptHead += `  <personality>${replaceMacros(targetCharacter.personality, targetCharName, userName)}</personality>\n`;
+            fixedPromptHead += `  <personality>${targetCharacter.personality}</personality>\n`;
         }
         if (targetCharacter.scenario) {
-            fixedPromptHead += `  <scenario>${replaceMacros(targetCharacter.scenario, targetCharName, userName)}</scenario>\n`;
+            fixedPromptHead += `  <scenario>${targetCharacter.scenario}</scenario>\n`;
         }
         fixedPromptHead += `</target_character>\n\n`;
-
-        if (personaText) fixedPromptHead += `<user_persona>\n  <name>${userName}</name>\n${personaText}\n</user_persona>\n\n`;
-        if (wiText) fixedPromptHead += `<world_lore>\n${wiText}\n</world_lore>\n\n`;
-
-        fixedPromptTail += specificRequestBlock;
-        fixedPromptTail += `<instruction>\n${effectiveInstruction}\n</instruction>\n\n`;
-
-        if (targetCharacter.post_history_instructions) {
-            fixedPromptTail += `<post_history_instructions>\n${replaceMacros(targetCharacter.post_history_instructions, targetCharName, userName)}\n</post_history_instructions>`;
-        }
-    } else {
-        if (personaText) fixedPromptHead += `<user_persona>\n  <name>${userName}</name>\n${personaText}\n</user_persona>\n\n`;
-        if (wiText) fixedPromptHead += `<world_lore>\n${wiText}\n</world_lore>\n\n`;
-
-        fixedPromptTail += specificRequestBlock;
-        fixedPromptTail += `<instruction>\n${effectiveInstruction}\n</instruction>`;
     }
+
+    if (personaText) fixedPromptHead += `<user_persona>\n  <name>${userName}</name>\n${personaText}\n</user_persona>\n\n`;
+    if (wiText) fixedPromptHead += `<world_lore>\n${wiText}\n</world_lore>\n\n`;
+    
+    fixedPromptTail += `<instruction>\n${promptInstruction}\n</instruction>\n\n`;
+    if (userInstruction) fixedPromptTail += specificRequestBlock
+
+    fixedPromptHead = await context.substituteParams(fixedPromptHead, {name2Override: targetCharName});
+    fixedPromptTail = await context.substituteParams(fixedPromptTail, {name2Override: targetCharName});
 
     const fixedTokens = await countTokens(systemPrompt) + await countTokens(fixedPromptHead) + await countTokens(fixedPromptTail)
         + await countTokens('<recent_scene>\n\n</recent_scene>\n\n');
