@@ -6,9 +6,7 @@ import { getContext } from '/scripts/extensions.js';
 import {
     getModuleSettings,
     isEditPromptEnabled,
-    promptUserForEdit,
-    initExtensionSettings,
-    mountExtensionUI
+    promptUserForEdit
 } from './settings.js';
 
 import {
@@ -22,12 +20,7 @@ import {
     uploadAndSetBackground,
     quoteSlashArg,
     readActiveProfileName
-} from './api-connection.js';
-
-// Re-export submodules for extension consumers/scripts
-export * from './settings.js';
-export * from './prompt-builder.js';
-export * from './api-connection.js';
+} from './utils/api-connection.js';
 
 function resolveCardOption(rawCard, defaultIncludeCharacter) {
     let includeCharacter = defaultIncludeCharacter !== false;

@@ -1,6 +1,6 @@
 import { getContext } from '/scripts/extensions.js';
 import { getModuleSettings, defaultCommandSettings, DEFAULT_HISTORY_TOKEN_LIMIT, DEFAULT_TOTAL_CONTEXT_TOKEN_LIMIT } from './settings.js';
-import { generateWithOptionalProfile } from './api-connection.js';
+import { generateWithOptionalProfile } from './utils/api-connection.js';
 
 // ==========================================
 // CHARACTER & MACRO UTILITIES
