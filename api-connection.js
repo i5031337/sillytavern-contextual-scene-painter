@@ -1,6 +1,6 @@
 import { getContext } from '/scripts/extensions.js';
 import { eventSource, event_types } from '/script.js';
-import { getModuleSettings } from './settings.js';
+import { getModuleSettings } from '../settings.js';
 
 // ==========================================
 // STRING & COMMAND UTILITIES
