@@ -511,10 +511,16 @@ export function initExtensionSettings() {
 
         const systemPrompt = $(`#custom_bg_${commandKey}_system_prompt`).val();
         const promptInstruction = $(`#custom_bg_${commandKey}_prompt_instruction`).val();
-        presetsArray.push({ name, systemPrompt, promptInstruction });
+        const existingIndex = presetsArray.findIndex(preset => preset.name === name);
+        const preset = { name, systemPrompt, promptInstruction };
+        if (existingIndex !== -1) {
+            presetsArray[existingIndex] = preset;
+        } else {
+            presetsArray.push(preset);
+        }
         saveSettings();
         populatePresetsDropdown(`custom_bg_${commandKey}_preset_select`, presetsArray);
-        $(`#custom_bg_${commandKey}_preset_select`).val(presetsArray.length - 1);
+        $(`#custom_bg_${commandKey}_preset_select`).val(existingIndex !== -1 ? existingIndex : presetsArray.length - 1);
         if (typeof toastr !== 'undefined') toastr.success(`Saved preset "${name}"`);
     }
 
