@@ -63,7 +63,14 @@ export async function executeRawGeneration(context, { prompt = '', systemPrompt 
             responseLength,
             trimNames: false,
         });
-        return cleanGeneratedPrompt(removeReasoningFromString(raw));
+        // The helper removes one leading block per call; models can emit several.
+        let promptText = raw;
+        while (true) {
+            const withoutReasoning = removeReasoningFromString(promptText);
+            if (withoutReasoning === promptText) break;
+            promptText = withoutReasoning;
+        }
+        return cleanGeneratedPrompt(promptText);
     } finally {
         if (tempHook && eventSource && event_types?.CHAT_COMPLETION_SETTINGS_READY) {
             eventSource.removeListener(event_types.CHAT_COMPLETION_SETTINGS_READY, tempHook);
