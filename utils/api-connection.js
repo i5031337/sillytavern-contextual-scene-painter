@@ -1,4 +1,5 @@
 import { getContext } from '/scripts/extensions.js';
+import { removeReasoningFromString } from '/scripts/reasoning.js';
 import { eventSource, event_types } from '/script.js';
 import { getModuleSettings } from '../settings.js';
 
@@ -62,7 +63,7 @@ export async function executeRawGeneration(context, { prompt = '', systemPrompt 
             responseLength,
             trimNames: false,
         });
-        return cleanGeneratedPrompt(raw);
+        return cleanGeneratedPrompt(removeReasoningFromString(raw));
     } finally {
         if (tempHook && eventSource && event_types?.CHAT_COMPLETION_SETTINGS_READY) {
             eventSource.removeListener(event_types.CHAT_COMPLETION_SETTINGS_READY, tempHook);
